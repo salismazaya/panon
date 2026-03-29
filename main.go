@@ -54,6 +54,7 @@ func generateDefaultKey() {
 	if data, err := os.ReadFile(walletFile); err == nil {
 		if err := json.Unmarshal(data, &wallet); err == nil {
 			defaultAddress = wallet.Address
+			privateKey = wallet.PrivateKey
 
 			log.Printf("Loaded existing Solana wallet from %s:", walletFile)
 			log.Printf("  Address: %s", wallet.Address)
@@ -67,12 +68,12 @@ func generateDefaultKey() {
 		log.Fatalf("Failed to generate private key: %v", err)
 	}
 
-	privateKey := pk.String()
-	address := pk.PublicKey().String()
+	newPrivateKey := pk.String()
+	newAddress := pk.PublicKey().String()
 
 	wallet = WalletData{
-		PrivateKey: privateKey,
-		Address:    address,
+		PrivateKey: newPrivateKey,
+		Address:    newAddress,
 	}
 
 	// Save the new wallet to file
@@ -82,11 +83,12 @@ func generateDefaultKey() {
 	}
 
 	defaultSessionID = "default_session"
-	defaultAddress = address
+	defaultAddress = newAddress
+	privateKey = newPrivateKey
 
 	log.Printf("Generated new default Solana wallet and saved to %s:", walletFile)
-	log.Printf("  Address: %s", address)
-	log.Printf("  Private Key: %s", privateKey)
+	log.Printf("  Address: %s", newAddress)
+	log.Printf("  Private Key: %s", newPrivateKey)
 }
 
 func main() {
