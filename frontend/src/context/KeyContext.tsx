@@ -21,7 +21,7 @@ export const KeyProvider = ({ children }: { children: ReactNode }) => {
 
   const loadDefaultWallet = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:3333/wallet');
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/wallet`);
       const result = await response.json();
 
       if (response.ok && result.address) {

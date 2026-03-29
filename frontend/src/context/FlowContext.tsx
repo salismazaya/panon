@@ -138,7 +138,7 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
 
   const loadFlow = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:3333/load');
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/load`);
       const data = await response.json();
       if (data.status === 'not_found') return;
       
@@ -171,7 +171,7 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
 
       try {
         const lua = compileToLua(nodes, edges);
-        const response = await fetch('http://localhost:3333/save', {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
