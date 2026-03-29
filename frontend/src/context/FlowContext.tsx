@@ -1,0 +1,230 @@
+import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { nodeRegistry } from '../utils/nodeRegistry';
+import { compileToLua } from '../utils/compiler';
+import {
+  addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
+  type Node,
+  type Edge,
+  type NodeChange,
+  type EdgeChange,
+  type OnNodesChange,
+  type OnEdgesChange,
+  type OnConnect,
+  type Connection,
+} from '@xyflow/react';
+
+interface FlowContextType {
+  nodes: Node[];
+  edges: Edge[];
+  onNodesChange: OnNodesChange;
+  onEdgesChange: OnEdgesChange;
+  onConnect: OnConnect;
+  addNode: (type: string, data: any) => void;
+  updateNodeData: (id: string, data: any) => void;
+  getAvailableVariables: () => string[];
+  isNodeValid: (node: Node) => boolean;
+  isFlowValid: () => boolean;
+  isVariableNameUnique: (nodeId: string, name: string) => boolean;
+  renameVariable: (oldName: string, newName: string) => void;
+  loadFlow: () => Promise<void>;
+  isSaving: boolean;
+  lastError: string | null;
+}
+
+const FlowContext = createContext<FlowContextType | null>(null);
+
+export const FlowProvider = ({ children }: { children: ReactNode }) => {
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const lastSavedRef = useRef<string>("");
+  const isInitialLoad = useRef(true);
+
+  const onNodesChange: OnNodesChange = useCallback(
+    (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
+    []
+  );
+
+  const onEdgesChange: OnEdgesChange = useCallback(
+    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+    []
+  );
+
+  const onConnect: OnConnect = useCallback(
+    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
+    []
+  );
+
+  const addNode = useCallback((type: string, data: any) => {
+    const newNode: Node = {
+      id: `${type}-${Date.now()}`,
+      type,
+      position: { x: 100 + Math.random() * 100, y: 100 + Math.random() * 100 },
+      data,
+    };
+    setNodes((nds) => nds.concat(newNode));
+  }, []);
+
+  const updateNodeData = useCallback((id: string, newData: any) => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === id) {
+          // Merge existing data with new data
+          return { ...node, data: { ...node.data, ...newData } };
+        }
+        return node;
+      })
+    );
+  }, []);
+
+  const getAvailableVariables = useCallback(() => {
+    const vars = new Set<string>();
+
+    nodes.forEach(n => {
+      if (typeof n.data?.assignedVariable === 'string' && n.data.assignedVariable.trim()) vars.add(n.data.assignedVariable.trim());
+      if (typeof n.data?.assignedSender === 'string' && n.data.assignedSender.trim()) vars.add(n.data.assignedSender.trim());
+      if (typeof n.data?.balanceAmount === 'string' && n.data.balanceAmount.trim()) vars.add(n.data.balanceAmount.trim());
+    });
+
+    return Array.from(vars);
+  }, [nodes]);
+
+  const isNodeValid = useCallback((node: Node) => {
+    const nodeDef = nodeRegistry[node.type || ''];
+    if (!nodeDef) return true;
+    return nodeDef.validate(node, nodes);
+  }, [nodes]);
+
+  const isFlowValid = useCallback(() => {
+    return nodes.length > 0 && nodes.every(node => isNodeValid(node));
+  }, [nodes, isNodeValid]);
+
+  const isVariableNameUnique = useCallback((nodeId: string, name: string) => {
+    if (!name.trim()) return true;
+    return !nodes.some(node => 
+      node.id !== nodeId && 
+      (node.data?.assignedVariable === name || node.data?.assignedSender === name || node.data?.balanceAmount === name)
+    );
+  }, [nodes]);
+
+  const renameVariable = useCallback((oldName: string, newName: string) => {
+    if (!oldName.trim() || oldName === newName) return;
+
+    setNodes(nds => nds.map(node => {
+      const data = { ...node.data };
+      let changed = false;
+
+      // Scan common variable reference fields
+      if (data.variable === oldName) {
+        data.variable = newName;
+        changed = true;
+      }
+
+      // Scan VariableOrValueSelect fields
+      ['recipientData', 'amountData', 'comparisonData'].forEach(key => {
+        const field = data[key] as any;
+        if (field?.mode === 'variable' && field.value === oldName) {
+          data[key] = { ...field, value: newName };
+          changed = true;
+        }
+      });
+
+      return changed ? { ...node, data } : node;
+    }));
+  }, []);
+
+  const loadFlow = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:3333/load');
+      const data = await response.json();
+      if (data.status === 'not_found') return;
+      
+      if (data.flow) {
+        setNodes(data.flow.nodes || []);
+        setEdges(data.flow.edges || []);
+        lastSavedRef.current = JSON.stringify({ nodes: data.flow.nodes, edges: data.flow.edges });
+      }
+      isInitialLoad.current = false;
+    } catch (err) {
+      console.error('Failed to load flow:', err);
+      isInitialLoad.current = false;
+    }
+  }, []);
+
+  // Autosave Effect
+  useEffect(() => {
+    if (isInitialLoad.current) return;
+
+    const currentHash = JSON.stringify({ nodes, edges });
+    if (currentHash === lastSavedRef.current) return;
+
+    const debounceTimer = setTimeout(async () => {
+      // Logic for saving
+      const isValid = nodes.length > 0 && nodes.every(node => isNodeValid(node));
+      if (!isValid) return;
+
+      setIsSaving(true);
+      setLastError(null);
+
+      try {
+        const lua = compileToLua(nodes, edges);
+        const response = await fetch('http://localhost:3333/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: lua,
+            flow: { nodes, edges }
+          })
+        });
+
+        const result = await response.json();
+        if (result.status === 'success') {
+          lastSavedRef.current = currentHash;
+        } else {
+          setLastError(result.error || 'Failed to autosave');
+        }
+      } catch (err) {
+        setLastError('Connection error while autosaving');
+      } finally {
+        setIsSaving(false);
+      }
+    }, 2000); // 2 second debounce
+
+    return () => clearTimeout(debounceTimer);
+  }, [nodes, edges, isNodeValid]);
+
+  return (
+    <FlowContext.Provider
+      value={{
+        nodes,
+        edges,
+        onNodesChange,
+        onEdgesChange,
+        onConnect,
+        addNode,
+        updateNodeData,
+        getAvailableVariables,
+        isNodeValid,
+        isFlowValid,
+        isVariableNameUnique,
+        renameVariable,
+        loadFlow,
+        isSaving,
+        lastError,
+      }}
+    >
+      {children}
+    </FlowContext.Provider>
+  );
+};
+
+export const useFlow = () => {
+  const context = useContext(FlowContext);
+  if (!context) {
+    throw new Error('useFlow must be used within a FlowProvider');
+  }
+  return context;
+};
