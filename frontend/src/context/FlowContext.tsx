@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, ty
 import { API_URL } from '../utils/api';
 import { nodeRegistry } from '../utils/nodeRegistry';
 import { compileToLua } from '../utils/compiler';
+import { useWorkspace } from './WorkspaceContext';
 import {
   addEdge,
   applyEdgeChanges,
@@ -42,8 +43,10 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const { currentWorkspace } = useWorkspace();
   const lastSavedRef = useRef<string>("");
   const isInitialLoad = useRef(true);
+  const currentWorkspaceIdRef = useRef<number | null>(null);
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
@@ -106,8 +109,8 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
 
   const isVariableNameUnique = useCallback((nodeId: string, name: string) => {
     if (!name.trim()) return true;
-    return !nodes.some(node => 
-      node.id !== nodeId && 
+    return !nodes.some(node =>
+      node.id !== nodeId &&
       (node.data?.assignedVariable === name || node.data?.assignedSender === name || node.data?.balanceAmount === name)
     );
   }, [nodes]);
@@ -139,9 +142,9 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const saveFlow = useCallback(async () => {
+    if (!currentWorkspace) return;
     const currentHash = JSON.stringify({ nodes, edges });
-    
-    // Logic for saving
+
     const isValid = nodes.length > 0 && nodes.every(node => isNodeValid(node));
     if (!isValid) return;
 
@@ -154,6 +157,7 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          workspaceId: currentWorkspace.workspaceId,
           code: lua,
           flow: { nodes, edges }
         })
@@ -170,15 +174,19 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsSaving(false);
     }
-  }, [nodes, edges, isNodeValid]);
+  }, [nodes, edges, isNodeValid, currentWorkspace]);
 
   const loadFlow = useCallback(async () => {
+    if (!currentWorkspace) return;
     try {
-      const response = await fetch(`${API_URL}/load`);
+      const response = await fetch(`${API_URL}/load?workspaceId=${currentWorkspace.workspaceId}`);
       const data = await response.json();
-      if (data.status === 'not_found') return;
-      
-      if (data.flow) {
+
+      if (data.status === 'not_found') {
+        setNodes([]);
+        setEdges([]);
+        lastSavedRef.current = JSON.stringify({ nodes: [], edges: [] });
+      } else if (data.flow) {
         setNodes(data.flow.nodes || []);
         setEdges(data.flow.edges || []);
         lastSavedRef.current = JSON.stringify({ nodes: data.flow.nodes, edges: data.flow.edges });
@@ -188,7 +196,16 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
       console.error('Failed to load flow:', err);
       isInitialLoad.current = false;
     }
-  }, []);
+  }, [currentWorkspace]);
+
+  // Handle Workspace Switch
+  useEffect(() => {
+    if (currentWorkspace?.workspaceId !== currentWorkspaceIdRef.current) {
+      currentWorkspaceIdRef.current = currentWorkspace?.workspaceId || null;
+      isInitialLoad.current = true; // Block autosave during load
+      loadFlow();
+    }
+  }, [currentWorkspace, loadFlow]);
 
   // Autosave Effect
   useEffect(() => {

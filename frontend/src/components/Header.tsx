@@ -4,6 +4,7 @@ import { useKey } from '../context/KeyContext';
 import { compileToLua } from '../utils/compiler';
 import { CodeModal } from './CodeModal';
 import { KeyModal } from './KeyModal';
+import { WorkspaceSelector } from './WorkspaceSelector';
 
 export const Header = () => {
     const { nodes, edges, isFlowValid, isSaving, lastError, saveFlow } = useFlow();
@@ -29,10 +30,11 @@ export const Header = () => {
 
     return (
         <header className="absolute top-0 right-0 left-80 h-20 border-b-4 border-black flex items-center justify-between px-8 z-20 bg-white pointer-events-auto">
-            <div className="flex items-center gap-4 text-sm font-black text-black uppercase tracking-tight">
+            <div className="flex items-center gap-6 text-sm font-black text-black uppercase tracking-tight">
+                <WorkspaceSelector />
                 <span className="flex items-center gap-3">
                     <span className={`w-3 h-3 ${isValid ? 'bg-emerald-400' : 'bg-red-500 animate-pulse'} border-2 border-black`} />
-                    Status: <span className="max-w-[200px] truncate">{isValid ? 'Ready to Compile' : 'Errors Detected'}</span>
+                    Status: <span className="max-w-[150px] truncate">{isValid ? 'Ready' : 'Errors'}</span>
                 </span>
             </div>
 

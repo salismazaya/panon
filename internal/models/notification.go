@@ -1,0 +1,15 @@
+package models
+
+type Notification struct {
+	WorkspaceID uint    `json:"workspaceId"`
+	Name        string  `json:"name"`
+	Amount      float64 `json:"amount"`
+	Sender      string  `json:"sender"`
+	Signature   string  `json:"signature"`
+}
+
+type ExecutorInput struct {
+	Signature   string
+	SolAmountIn float64
+	Signer      string
+}
