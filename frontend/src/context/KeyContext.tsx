@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { API_URL } from '../utils/api';
 
 interface KeyContextType {
   // sessionId: string | null;
@@ -21,7 +22,7 @@ export const KeyProvider = ({ children }: { children: ReactNode }) => {
 
   const loadDefaultWallet = useCallback(async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/wallet`);
+      const response = await fetch(`${API_URL}/wallet`);
       const result = await response.json();
 
       if (response.ok && result.address) {
