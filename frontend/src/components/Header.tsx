@@ -6,7 +6,7 @@ import { CodeModal } from './CodeModal';
 import { KeyModal } from './KeyModal';
 
 export const Header = () => {
-    const { nodes, edges, isFlowValid, isSaving, lastError } = useFlow();
+    const { nodes, edges, isFlowValid, isSaving, lastError, saveFlow } = useFlow();
     const { address } = useKey();
     const [isCodeModalOpen, setIsCodeModalOpen] = useState(false);
     const [generatedCode, setGeneratedCode] = useState('');
@@ -14,14 +14,18 @@ export const Header = () => {
 
     const isValid = isFlowValid();
 
+    const handleSave = () => {
+        if (isValid && !isSaving) {
+            saveFlow();
+        }
+    };
+
     const handleGenerate = () => {
         if (!isValid) return;
         const lua = compileToLua(nodes, edges);
         setGeneratedCode(lua);
         setIsCodeModalOpen(true);
     };
-
-
 
     return (
         <header className="absolute top-0 right-0 left-80 h-20 border-b-4 border-black flex items-center justify-between px-8 z-20 bg-white pointer-events-auto">
@@ -54,19 +58,35 @@ export const Header = () => {
                     <button onClick={handleGenerate} className="px-4 py-1 text-[10px] font-black uppercase tracking-widest text-black hover:bg-black/5">Code</button>
                 </div>
 
-                <button
-                    onClick={handleGenerate}
-                    disabled={!isValid}
-                    className={`flex items-center gap-2 px-4 py-3 border-4 border-black text-sm font-black uppercase transition-all ${isValid
-                        ? 'bg-[#818cf8] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px]'
-                        : 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60'
-                        }`}
-                >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                    </svg>
-                    Code
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={handleSave}
+                        disabled={!isValid || isSaving}
+                        className={`flex items-center gap-2 px-4 py-3 border-4 border-black text-sm font-black uppercase transition-all ${isValid && !isSaving
+                            ? 'bg-emerald-400 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px]'
+                            : 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60'
+                            }`}
+                    >
+                        <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                        </svg>
+                        Save
+                    </button>
+
+                    <button
+                        onClick={handleGenerate}
+                        disabled={!isValid}
+                        className={`flex items-center gap-2 px-4 py-3 border-4 border-black text-sm font-black uppercase transition-all ${isValid
+                            ? 'bg-[#818cf8] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px]'
+                            : 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60'
+                            }`}
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                        </svg>
+                        Code
+                    </button>
+                </div>
 
                 <div className="flex items-center gap-3 px-4 py-3 border-4 border-black text-sm font-black uppercase bg-white">
                     {isSaving ? (
@@ -84,7 +104,7 @@ export const Header = () => {
                             <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
                             </svg>
-                            <span className="text-emerald-500">Autosaved</span>
+                            <span className="text-emerald-500">Synced</span>
                         </>
                     )}
                 </div>

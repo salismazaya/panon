@@ -30,6 +30,7 @@ interface FlowContextType {
   isVariableNameUnique: (nodeId: string, name: string) => boolean;
   renameVariable: (oldName: string, newName: string) => void;
   loadFlow: () => Promise<void>;
+  saveFlow: () => Promise<void>;
   isSaving: boolean;
   lastError: string | null;
 }
@@ -137,6 +138,40 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
     }));
   }, []);
 
+  const saveFlow = useCallback(async () => {
+    const currentHash = JSON.stringify({ nodes, edges });
+    
+    // Logic for saving
+    const isValid = nodes.length > 0 && nodes.every(node => isNodeValid(node));
+    if (!isValid) return;
+
+    setIsSaving(true);
+    setLastError(null);
+
+    try {
+      const lua = compileToLua(nodes, edges);
+      const response = await fetch(`${API_URL}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: lua,
+          flow: { nodes, edges }
+        })
+      });
+
+      const result = await response.json();
+      if (result.status === 'success') {
+        lastSavedRef.current = currentHash;
+      } else {
+        setLastError(result.error || 'Failed to save');
+      }
+    } catch (err) {
+      setLastError('Connection error while saving');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [nodes, edges, isNodeValid]);
+
   const loadFlow = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/load`);
@@ -162,40 +197,12 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
     const currentHash = JSON.stringify({ nodes, edges });
     if (currentHash === lastSavedRef.current) return;
 
-    const debounceTimer = setTimeout(async () => {
-      // Logic for saving
-      const isValid = nodes.length > 0 && nodes.every(node => isNodeValid(node));
-      if (!isValid) return;
-
-      setIsSaving(true);
-      setLastError(null);
-
-      try {
-        const lua = compileToLua(nodes, edges);
-        const response = await fetch(`${API_URL}/save`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            code: lua,
-            flow: { nodes, edges }
-          })
-        });
-
-        const result = await response.json();
-        if (result.status === 'success') {
-          lastSavedRef.current = currentHash;
-        } else {
-          setLastError(result.error || 'Failed to autosave');
-        }
-      } catch (err) {
-        setLastError('Connection error while autosaving');
-      } finally {
-        setIsSaving(false);
-      }
+    const debounceTimer = setTimeout(() => {
+      saveFlow();
     }, 2000); // 2 second debounce
 
     return () => clearTimeout(debounceTimer);
-  }, [nodes, edges, isNodeValid]);
+  }, [nodes, edges, saveFlow]);
 
   return (
     <FlowContext.Provider
@@ -213,6 +220,7 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
         isVariableNameUnique,
         renameVariable,
         loadFlow,
+        saveFlow,
         isSaving,
         lastError,
       }}
