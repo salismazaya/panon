@@ -1,5 +1,5 @@
 # Panon - No-Code Solana Automation Builder
-
+Preview: https://youtu.be/aeLU4qg-FAs?si=1TxohuzTmQyVSuN-
 **"Panon"** means **"Eye"** in Sundanese (a regional language from Indonesia). This project acts as the "eyes" for your Solana wallet, monitoring inbound transactions and triggering automated workflows in real-time.
 
 Panon is a modular, visual no-code builder designed to automate Solana transactions. It allows you to build complex logic (like "If balance > X transfer to Y") using a drag-and-drop interface, which then generates and executes Lua scripts in response to real-time on-chain events.
