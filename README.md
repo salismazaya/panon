@@ -50,7 +50,11 @@ npm install
 npm run dev
 ```
 
-The frontend will start at `http://localhost:5173` (or the next available port).
+The frontend will start at `http://localhost:5173` (or the next available port). By default, it connects to the backend at `http://localhost:3333`. You can customize this by creating a `.env` file in the `frontend` directory:
+
+```env
+VITE_API_URL=http://your-backend-api:3333
+```
 
 ---
 

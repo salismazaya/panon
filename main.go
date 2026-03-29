@@ -246,6 +246,14 @@ func main() {
 		privateKey,
 	)
 
+	// Serve compiled frontend files from the 'dist' directory
+	app.Static("/", "./dist")
+
+	// Catch-all route for SPA (React Router support)
+	app.Get("*", func(c *fiber.Ctx) error {
+		return c.SendFile("./dist/index.html")
+	})
+
 	log.Fatal(app.Listen(":3333"))
 }
 
