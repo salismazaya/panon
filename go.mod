@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	github.com/gagliardetto/solana-go v1.14.0
 	github.com/gofiber/fiber/v2 v2.52.12
+	github.com/joho/godotenv v1.5.1
 	github.com/yuin/gopher-lua v1.1.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
