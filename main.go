@@ -5,14 +5,14 @@ import (
 	"log"
 	"time"
 
-	"github.com/gagliardetto/solana-go"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/joho/godotenv"
 
 	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/handlers"
-	"github.com/salismazaya/panon/internal/helpers"
+
 	"github.com/salismazaya/panon/internal/listener"
 	"github.com/salismazaya/panon/internal/models"
 )
@@ -25,27 +25,13 @@ func main() {
 	// Initialize database
 	db := database.GetDatabase()
 
-	// Ensure at least one workspace exists
+	// Ensure at least one workspace exists (and that migrations have been run)
 	var count int64
-	db.Model(&models.Workspace{}).Count(&count)
+	if err := db.Model(&models.Workspace{}).Count(&count).Error; err != nil {
+		log.Fatalf("❌ Error querying workspaces. Please ensure you have run migrations: %v", err)
+	}
 	if count == 0 {
-		// Create a fresh default workspace
-		privKey := solana.NewWallet().PrivateKey.String()
-		encryptedPrivKey, err := helpers.Encrypt(privKey)
-		if err != nil {
-			panic(err)
-		}
-
-		wallet := &models.Wallet{EncryptedPrivateKey: encryptedPrivKey}
-		db.Create(wallet)
-
-		workspace := &models.Workspace{
-			Name:     "Default Workspace",
-			Wallet:   *wallet,
-			WalletID: wallet.ID,
-		}
-		db.Create(workspace)
-		log.Println("✨ Created fresh Default Workspace")
+		log.Fatal("❌ No workspaces found. Please run migrations to seed the default workspace.")
 	}
 
 	// Create Fiber app
