@@ -5,15 +5,14 @@ import (
 	"log"
 	"time"
 
-
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/joho/godotenv"
 
 	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/handlers"
-
 	"github.com/salismazaya/panon/internal/listener"
+	"github.com/salismazaya/panon/internal/middleware"
 	"github.com/salismazaya/panon/internal/models"
 )
 
@@ -38,9 +37,15 @@ func main() {
 	app := fiber.New()
 	app.Use(cors.New())
 
-	// Initialize handlers
+	// Initialize handlers and auth
 	h := handlers.New("", func() string { return "" })
-	h.RegisterRoutes(app)
+	authHandlers := handlers.NewAuthHandlers()
+
+	// Initialize auth middleware with token validation from authHandlers
+	auth := middleware.NewAuth(authHandlers.ValidateToken)
+	h.Auth = auth
+
+	h.RegisterRoutes(app, authHandlers)
 
 	fmt.Println("Panon API Server is live at http://localhost:3333")
 

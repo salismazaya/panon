@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
-import { API_URL } from '../utils/api';
+import { API_URL, authFetch } from '../utils/api';
 
 export interface Workspace {
     workspaceId: number;
@@ -68,7 +68,7 @@ export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
 
     const refreshWorkspaces = useCallback(async () => {
         try {
-            const response = await fetch(`${API_URL}/workspaces`);
+            const response = await authFetch(`${API_URL}/workspaces`);
             const data = await response.json();
             if (response.ok) {
                 setWorkspaces(data);
@@ -91,7 +91,7 @@ export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
 
     const selectWorkspace = async (id: number) => {
         try {
-            const response = await fetch(`${API_URL}/workspace/${id}`);
+            const response = await authFetch(`${API_URL}/workspace/${id}`);
             const data = await response.json();
             if (response.ok) {
                 setCurrentWorkspace(data);
@@ -104,7 +104,7 @@ export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
 
     const createWorkspace = async (name: string): Promise<Workspace | null> => {
         try {
-            const response = await fetch(`${API_URL}/workspace`, {
+            const response = await authFetch(`${API_URL}/workspace`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name }),
@@ -123,7 +123,7 @@ export const WorkspaceProvider = ({ children }: { children: ReactNode }) => {
 
     const renameWorkspace = async (id: number, name: string) => {
         try {
-            const response = await fetch(`${API_URL}/workspace/${id}`, {
+            const response = await authFetch(`${API_URL}/workspace/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name }),

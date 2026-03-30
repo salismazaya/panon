@@ -11,6 +11,7 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/helpers"
+	"github.com/salismazaya/panon/internal/middleware"
 	"github.com/salismazaya/panon/internal/models"
 	"github.com/salismazaya/panon/panon"
 )
@@ -42,6 +43,7 @@ type Handlers struct {
 	SolListener    interface {
 		RegisterWorkspace(workspace models.Workspace, executor func(workspace models.Workspace, input models.ExecutorInput)) error
 	}
+	Auth *middleware.AuthMiddleware
 }
 
 // New creates a new Handlers instance.
@@ -117,30 +119,39 @@ func (h *Handlers) ExecuteLuaTrigger(amount float64, sender string, rpcURL, priv
 }
 
 // RegisterRoutes registers all HTTP routes on the Fiber app.
-func (h *Handlers) RegisterRoutes(app *fiber.App) {
+func (h *Handlers) RegisterRoutes(app *fiber.App, authHandlers *AuthHandlers) {
+	// Public routes (no authentication required)
+	app.Post("/login", authHandlers.Login)
+
+	// All routes below require authentication
+	auth := h.Auth.Protect()
+
 	// Endpoint to get default wallet address
-	app.Get("/workspace/:workspaceId", h.GetWorkspace)
+	app.Get("/workspace/:workspaceId", auth, h.GetWorkspace)
 
 	// Endpoint to derive public address from private key
-	app.Post("/derive-address", h.DeriveAddress)
+	app.Post("/derive-address", auth, h.DeriveAddress)
 
 	// Endpoint to save the generated Lua flow to the database
-	app.Post("/save", h.SaveFlow)
+	app.Post("/save", auth, h.SaveFlow)
 
 	// Endpoint to load the saved flow from the database
-	app.Get("/load", h.LoadFlow)
+	app.Get("/load", auth, h.LoadFlow)
 
 	// Endpoint to create a new workspace
-	app.Post("/workspace", h.CreateWorkspace)
+	app.Post("/workspace", auth, h.CreateWorkspace)
 
 	// Endpoint to update/rename a workspace
-	app.Put("/workspace/:workspaceId", h.UpdateWorkspace)
+	app.Put("/workspace/:workspaceId", auth, h.UpdateWorkspace)
 
 	// Endpoint to list all workspaces
-	app.Get("/workspaces", h.ListWorkspaces)
+	app.Get("/workspaces", auth, h.ListWorkspaces)
 
 	// Endpoint to get all wallets
-	app.Get("/wallets", h.ListWallets)
+	app.Get("/wallets", auth, h.ListWallets)
+
+	// Endpoint to update user profile (username/password)
+	app.Put("/user", auth, authHandlers.UpdateProfile)
 }
 
 func (h *Handlers) ListWorkspaces(c *fiber.Ctx) error {

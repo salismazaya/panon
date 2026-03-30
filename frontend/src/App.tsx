@@ -4,8 +4,10 @@ import { Header } from "./components/Header";
 import { FlowProvider } from "./context/FlowContext";
 import { KeyProvider } from "./context/KeyContext";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { LoginPage } from "./components/LoginPage";
 
-export default function App() {
+function AuthenticatedApp() {
   return (
     <WorkspaceProvider>
       <KeyProvider>
@@ -20,5 +22,23 @@ export default function App() {
         </FlowProvider>
       </KeyProvider>
     </WorkspaceProvider>
+  );
+}
+
+function AppContent() {
+  const { isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
+
+  return <AuthenticatedApp />;
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

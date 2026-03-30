@@ -71,7 +71,8 @@ func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(m
 			got, err := sub.Recv(context.Background())
 			if err != nil {
 				log.Printf("Subscription error for workspace %d: %v", workspace.ID, err)
-				return
+				time.Sleep(1 * time.Second)
+				continue
 			}
 			l.processTransaction(got.Value.Signature, workspace, executor)
 		}

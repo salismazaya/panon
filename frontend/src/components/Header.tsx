@@ -1,17 +1,21 @@
 import { useState } from 'react';
 import { useFlow } from '../context/FlowContext';
 import { useKey } from '../context/KeyContext';
+import { useAuth } from '../context/AuthContext';
 import { compileToLua } from '../utils/compiler';
 import { CodeModal } from './CodeModal';
 import { KeyModal } from './KeyModal';
 import { WorkspaceSelector } from './WorkspaceSelector';
+import { SettingsModal } from './SettingsModal';
 
 export const Header = () => {
     const { nodes, edges, isFlowValid, isSaving, lastError, saveFlow } = useFlow();
     const { address } = useKey();
+    const { user } = useAuth();
     const [isCodeModalOpen, setIsCodeModalOpen] = useState(false);
     const [generatedCode, setGeneratedCode] = useState('');
     const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
     const isValid = isFlowValid();
 
@@ -111,6 +115,16 @@ export const Header = () => {
                     )}
                 </div>
 
+                {/* User / Settings Button */}
+                <button
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 border-2 border-black bg-white font-black uppercase text-xs tracking-widest shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:-translate-x-px hover:-translate-y-px transition-all"
+                >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    {user?.username || 'User'}
+                </button>
 
             </div>
 
@@ -123,6 +137,11 @@ export const Header = () => {
             <KeyModal
                 isOpen={isKeyModalOpen}
                 onClose={() => setIsKeyModalOpen(false)}
+            />
+
+            <SettingsModal
+                isOpen={isSettingsOpen}
+                onClose={() => setIsSettingsOpen(false)}
             />
         </header>
     );
