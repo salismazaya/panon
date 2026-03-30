@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +9,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/helpers"
 	"github.com/salismazaya/panon/internal/models"
 	"github.com/salismazaya/panon/panon"
@@ -39,7 +39,6 @@ type WalletData struct {
 type Handlers struct {
 	DefaultAddress string
 	GetPrivateKey  func() string
-	Broadcast      chan models.Notification
 	SolListener    interface {
 		RegisterWorkspace(workspace models.Workspace, executor func(workspace models.Workspace, input models.ExecutorInput)) error
 	}
@@ -50,12 +49,18 @@ func New(defaultAddress string, getPrivateKey func() string) *Handlers {
 	return &Handlers{
 		DefaultAddress: defaultAddress,
 		GetPrivateKey:  getPrivateKey,
-		Broadcast:      make(chan models.Notification),
 	}
 }
 
 // ExecuteLuaTrigger executes the Lua trigger when SOL is received.
-func (h *Handlers) ExecuteLuaTrigger(amount float64, sender string, rpcURL, privateKey string, flowState string) {
+func (h *Handlers) ExecuteLuaTrigger(amount float64, sender string, rpcURL, privateKey string, workspaceId uint) {
+	db := database.GetDatabase()
+
+	var workspace models.Workspace
+
+	db.First(&workspace, workspaceId)
+	flowState := workspace.FlowState
+
 	if flowState == "" {
 		return
 	}
@@ -88,11 +93,13 @@ func (h *Handlers) ExecuteLuaTrigger(amount float64, sender string, rpcURL, priv
 
 	log.Println("Executing Lua code: ", code)
 	if err := L.DoString(string(code)); err != nil {
+		fmt.Println("{}", err)
 		return
 	}
 
 	fn := L.GetGlobal("on_sol_received")
 	if fn.Type() != lua.LTFunction {
+		fmt.Println("{}", err)
 		return
 	}
 
@@ -103,6 +110,8 @@ func (h *Handlers) ExecuteLuaTrigger(amount float64, sender string, rpcURL, priv
 	}, lua.LNumber(amount), lua.LString(sender))
 
 	if err != nil {
+		fmt.Println("{}", err)
+
 		return
 	}
 }
@@ -132,13 +141,10 @@ func (h *Handlers) RegisterRoutes(app *fiber.App) {
 
 	// Endpoint to get all wallets
 	app.Get("/wallets", h.ListWallets)
-
-	// SSE Endpoint for real-time notifications
-	app.Get("/events", h.HandleEvents)
 }
 
 func (h *Handlers) ListWorkspaces(c *fiber.Ctx) error {
-	db := helpers.GetDatabase()
+	db := database.GetDatabase()
 
 	var workspaces []models.Workspace
 	if err := db.Find(&workspaces).Error; err != nil {
@@ -158,7 +164,7 @@ func (h *Handlers) ListWorkspaces(c *fiber.Ctx) error {
 
 func (h *Handlers) UpdateWorkspace(c *fiber.Ctx) error {
 	workspaceID := c.Params("workspaceId")
-	db := helpers.GetDatabase()
+	db := database.GetDatabase()
 
 	type Request struct {
 		Name string `json:"name"`
@@ -175,27 +181,9 @@ func (h *Handlers) UpdateWorkspace(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"status": "success"})
 }
 
-func (h *Handlers) HandleEvents(c *fiber.Ctx) error {
-	c.Set("Content-Type", "text/event-stream")
-	c.Set("Cache-Control", "no-cache")
-	c.Set("Connection", "keep-alive")
-	c.Set("Transfer-Encoding", "chunked")
-
-	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
-		for {
-			notification := <-h.Broadcast
-			data, _ := json.Marshal(notification)
-			fmt.Fprintf(w, "data: %s\n\n", string(data))
-			w.Flush()
-		}
-	})
-
-	return nil
-}
-
 // ListWallets returns all wallets with their addresses.
 func (h *Handlers) ListWallets(c *fiber.Ctx) error {
-	db := helpers.GetDatabase()
+	db := database.GetDatabase()
 
 	var wallets []models.Wallet
 	if err := db.Find(&wallets).Error; err != nil {
@@ -204,7 +192,7 @@ func (h *Handlers) ListWallets(c *fiber.Ctx) error {
 
 	result := make([]fiber.Map, 0)
 	for _, wallet := range wallets {
-		pk, err := solana.PrivateKeyFromBase58(wallet.PrivateKey)
+		pk, err := solana.PrivateKeyFromBase58(wallet.GetPrivateKey())
 		if err != nil {
 			continue
 		}
@@ -222,7 +210,7 @@ func (h *Handlers) ListWallets(c *fiber.Ctx) error {
 func (h *Handlers) GetWorkspace(c *fiber.Ctx) error {
 	workspaceID := c.Params("workspaceId")
 
-	db := helpers.GetDatabase()
+	db := database.GetDatabase()
 
 	var workspace models.Workspace
 	if err := db.Preload("Wallet").First(&workspace, workspaceID).Error; err != nil {
@@ -230,7 +218,7 @@ func (h *Handlers) GetWorkspace(c *fiber.Ctx) error {
 	}
 
 	wallet := workspace.Wallet
-	account, err := solana.PrivateKeyFromBase58(wallet.PrivateKey)
+	account, err := solana.PrivateKeyFromBase58(wallet.GetPrivateKey())
 
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Invalid private key"})
@@ -246,7 +234,7 @@ func (h *Handlers) GetWorkspace(c *fiber.Ctx) error {
 }
 
 func (h *Handlers) CreateWorkspace(c *fiber.Ctx) error {
-	db := helpers.GetDatabase()
+	db := database.GetDatabase()
 
 	type Request struct {
 		Name string `json:"name"`
@@ -257,8 +245,13 @@ func (h *Handlers) CreateWorkspace(c *fiber.Ctx) error {
 	}
 
 	privKey := solana.NewWallet().PrivateKey.String()
+	encryptedPrivKey, err := helpers.Encrypt(privKey)
 
-	wallet := &models.Wallet{PrivateKey: privKey}
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "bad secret key"})
+	}
+
+	wallet := &models.Wallet{EncryptedPrivateKey: encryptedPrivKey}
 	db.Create(wallet)
 
 	workspace := &models.Workspace{Name: req.Name, Wallet: *wallet}
@@ -269,7 +262,7 @@ func (h *Handlers) CreateWorkspace(c *fiber.Ctx) error {
 		h.SolListener.RegisterWorkspace(*workspace, func(workspace models.Workspace, input models.ExecutorInput) {
 			// We need a reference to rpcUrl here, usually we should store it in Handlers or models
 			// For now, use the devnet default
-			h.ExecuteLuaTrigger(input.SolAmountIn, input.Signer, "https://api.devnet.solana.com", workspace.Wallet.PrivateKey, workspace.FlowState)
+			h.ExecuteLuaTrigger(input.SolAmountIn, input.Signer, "https://api.devnet.solana.com", workspace.Wallet.GetPrivateKey(), workspace.ID)
 		})
 	}
 
@@ -317,7 +310,7 @@ func (h *Handlers) SaveFlow(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to marshal JSON: " + err.Error()})
 	}
 
-	db := helpers.GetDatabase()
+	db := database.GetDatabase()
 	if err := db.Model(&models.Workspace{}).Where("id = ?", req.WorkspaceID).Update("flow_state", string(data)).Error; err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to save to database"})
 	}
@@ -335,7 +328,7 @@ func (h *Handlers) LoadFlow(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "workspaceId is required"})
 	}
 
-	db := helpers.GetDatabase()
+	db := database.GetDatabase()
 	var workspace models.Workspace
 	if err := db.First(&workspace, workspaceID).Error; err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "Workspace not found"})

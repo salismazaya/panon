@@ -2,3 +2,5 @@ panon_saved.json
 wallet.json
 panon
 *.db
+.env
+main

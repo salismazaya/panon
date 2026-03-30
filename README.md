@@ -29,13 +29,16 @@ From the root directory of the project:
 
 ```bash
 # Install Go dependencies
-go mod tidy
+make tidy
+
+# Migrate database
+make migrate-up
 
 # Run the backend server
-go run main.go
+make run
 ```
 
-The backend will start at `http://localhost:3333`. On the first run, it will generate a `wallet.json` file in the root directory containing your monitored Solana address and private key.
+The backend will start at `http://localhost:3333`
 
 ### 2. Frontend Setup
 
@@ -77,11 +80,21 @@ VITE_API_URL=http://your-backend-api:3333
 - `main.go`: The core API server and Solana transaction listener.
 - `panon/`: A Go package containing the Lua-Solana binding library.
 - `frontend/`: React + Vite application for the visual builder.
+- `internal/`: Internal packages including models, database migrations, and handlers.
+- `cmd/`: Command-line utilities (e.g., migration tool).
 - `panon_saved.json`: Stores your visual flow and generated Lua code.
 - `wallet.json`: Stores your persistent Solana keypair (keep this safe!).
 
 ---
 
-## ⚠️ Security Note
+## 🧰 Makefile Commands
 
-The `wallet.json` file contains a plain-text private key for your automation wallet. **Never commit this file to a public repository.** It is included in `.gitignore` by default. Use only on Devnet for testing.
+| Command | Description |
+|---------|-------------|
+| `make run` | Run the application |
+| `make build` | Build the application binary to `bin/panon` |
+| `make tidy` | Tidy Go modules |
+| `make vet` | Run Go vet for code quality |
+| `make migrate-up` | Run all pending database migrations |
+| `make migrate-down` | Rollback the last migration |
+| `make make-migration` | Create a new database migration file |

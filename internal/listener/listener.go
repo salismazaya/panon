@@ -27,10 +27,9 @@ type Listener struct {
 	mu                  sync.RWMutex
 	subscriptions       map[uint]*ws.LogSubscription
 	processedSignatures map[string]bool
-	broadcast           chan models.Notification
 }
 
-func New(config Config, broadcast chan models.Notification) (*Listener, error) {
+func New(config Config) (*Listener, error) {
 	wsClient, err := ws.Connect(context.Background(), config.WSUrl)
 	if err != nil {
 		return nil, errors.New("failed connect to ws")
@@ -44,12 +43,11 @@ func New(config Config, broadcast chan models.Notification) (*Listener, error) {
 		rpcClient:           rpcClient,
 		subscriptions:       make(map[uint]*ws.LogSubscription),
 		processedSignatures: make(map[string]bool),
-		broadcast:           broadcast,
 	}, nil
 }
 
 func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(models.Workspace, models.ExecutorInput)) error {
-	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.PrivateKey)
+	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
 	if err != nil {
 		return err
 	}
@@ -124,7 +122,7 @@ func (l *Listener) processTransaction(sig solana.Signature, workspace models.Wor
 		return
 	}
 
-	pk, _ := solana.PrivateKeyFromBase58(workspace.Wallet.PrivateKey)
+	pk, _ := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
 	myPubkey := pk.PublicKey()
 
 	accountKeys := parsedTx.Message.AccountKeys
@@ -151,15 +149,6 @@ func (l *Listener) processTransaction(sig solana.Signature, workspace models.Wor
 		log.Printf("   Amount: %f SOL", amountSOL)
 		log.Printf("   Sender: %s", sender)
 		log.Printf("   Signature: %s", sig)
-
-		// Notify frontend
-		l.broadcast <- models.Notification{
-			WorkspaceID: workspace.ID,
-			Name:        workspace.Name,
-			Amount:      amountSOL,
-			Sender:      sender,
-			Signature:   sig.String(),
-		}
 
 		executor(workspace, models.ExecutorInput{
 			Signature:   sig.String(),

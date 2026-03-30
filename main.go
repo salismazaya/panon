@@ -5,36 +5,33 @@ import (
 	"log"
 	"time"
 
-	"github.com/gagliardetto/solana-go"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/joho/godotenv"
 
+	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/handlers"
-	"github.com/salismazaya/panon/internal/helpers"
+
 	"github.com/salismazaya/panon/internal/listener"
 	"github.com/salismazaya/panon/internal/models"
 )
 
 func main() {
+	// Load environment variables
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found")
+	}
 	// Initialize database
-	db := helpers.GetDatabase()
+	db := database.GetDatabase()
 
-	// Ensure at least one workspace exists
+	// Ensure at least one workspace exists (and that migrations have been run)
 	var count int64
-	db.Model(&models.Workspace{}).Count(&count)
+	if err := db.Model(&models.Workspace{}).Count(&count).Error; err != nil {
+		log.Fatalf("❌ Error querying workspaces. Please ensure you have run migrations: %v", err)
+	}
 	if count == 0 {
-		// Create a fresh default workspace
-		privKey := solana.NewWallet().PrivateKey.String()
-		wallet := &models.Wallet{PrivateKey: privKey}
-		db.Create(wallet)
-
-		workspace := &models.Workspace{
-			Name:     "Default Workspace",
-			Wallet:   *wallet,
-			WalletID: wallet.ID,
-		}
-		db.Create(workspace)
-		log.Println("✨ Created fresh Default Workspace")
+		log.Fatal("❌ No workspaces found. Please run migrations to seed the default workspace.")
 	}
 
 	// Create Fiber app
@@ -53,7 +50,7 @@ func main() {
 		WSUrl:  "wss://api.devnet.solana.com",
 	}
 
-	solListener, err := listener.New(cfg, h.Broadcast)
+	solListener, err := listener.New(cfg)
 	if err != nil {
 		log.Fatalf("Failed to create Solana listener: %v", err)
 	}
@@ -64,7 +61,7 @@ func main() {
 	db.Preload("Wallet").Find(&workspaces)
 	for _, ws := range workspaces {
 		err := solListener.RegisterWorkspace(ws, func(workspace models.Workspace, input models.ExecutorInput) {
-			h.ExecuteLuaTrigger(input.SolAmountIn, input.Signer, cfg.RpcUrl, workspace.Wallet.PrivateKey, workspace.FlowState)
+			h.ExecuteLuaTrigger(input.SolAmountIn, input.Signer, cfg.RpcUrl, workspace.Wallet.GetPrivateKey(), workspace.ID)
 		})
 		if err != nil {
 			log.Printf("Failed to register workspace %s: %v", ws.Name, err)
