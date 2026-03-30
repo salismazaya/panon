@@ -1,6 +1,7 @@
 import { BaseNode } from "./BaseNode";
 import { VariableAssignField } from "../components/Fields";
 import { useFlow } from "../context/FlowContext";
+import { Position } from "@xyflow/react";
 
 const SolanaIcon = () => (
     <svg className="w-5 h-5 text-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -43,17 +44,24 @@ export function OnSolReceivedNode({ id, data, type }: any) {
             icon={<SolanaIcon />}
             modalTitle="Solana Monitor Setup"
             modalBody={(draft, update) => (
-                <SolanaSetupFields 
-                    data={draft} 
+                <SolanaSetupFields
+                    data={draft}
                     onFieldChange={(field: string, val: string) => {
                         const currentDraftVal = draft[field];
                         if (currentDraftVal && currentDraftVal !== val) {
                             renameVariable(currentDraftVal, val);
                         }
                         update({ ...draft, [field]: val });
-                    }} 
+                    }}
                 />
             )}
+            customHandles={[
+                {
+                    id: 'sol',
+                    position: Position.Bottom,
+                    type: 'source',
+                }
+            ]}
         />
     );
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	lua "github.com/yuin/gopher-lua"
@@ -41,7 +42,9 @@ type Handlers struct {
 	DefaultAddress string
 	GetPrivateKey  func() string
 	SolListener    interface {
-		RegisterWorkspace(workspace models.Workspace, executor func(workspace models.Workspace, input models.ExecutorInput)) error
+		RegisterWorkspace(workspace models.Workspace, executor func(input models.ExecutorInput)) error
+		UnregisterWorkspace(workspaceID uint) error
+		GetRPCURL(network models.Network) string
 	}
 	Auth *middleware.AuthMiddleware
 }
@@ -167,6 +170,7 @@ func (h *Handlers) ListWorkspaces(c *fiber.Ctx) error {
 		result = append(result, fiber.Map{
 			"workspaceId": ws.ID,
 			"name":        ws.Name,
+			"network":     ws.Network,
 		})
 	}
 
@@ -174,19 +178,58 @@ func (h *Handlers) ListWorkspaces(c *fiber.Ctx) error {
 }
 
 func (h *Handlers) UpdateWorkspace(c *fiber.Ctx) error {
-	workspaceID := c.Params("workspaceId")
+	workspaceIDStr := c.Params("workspaceId")
+	workspaceID, err := strconv.Atoi(workspaceIDStr)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid workspace ID"})
+	}
+
 	db := database.GetDatabase()
 
 	type Request struct {
-		Name string `json:"name"`
+		Name    string         `json:"name"`
+		Network models.Network `json:"network"`
 	}
 	req := new(Request)
 	if err := c.BodyParser(req); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
 	}
 
-	if err := db.Model(&models.Workspace{}).Where("id = ?", workspaceID).Update("name", req.Name).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Failed to update workspace"})
+	var workspace models.Workspace
+	if err := db.Preload("Wallet").First(&workspace, workspaceID).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Workspace not found"})
+	}
+
+	networkChanged := false
+	if req.Network != "" && req.Network.IsValid() && req.Network != workspace.Network {
+		networkChanged = true
+	}
+
+	updates := map[string]interface{}{}
+	if req.Name != "" {
+		updates["name"] = req.Name
+	}
+	if req.Network != "" && req.Network.IsValid() {
+		updates["network"] = req.Network
+	}
+
+	if len(updates) > 0 {
+		if err := db.Model(&models.Workspace{}).Where("id = ?", workspaceID).Updates(updates).Error; err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "Failed to update workspace"})
+		}
+	}
+
+	// Reload workspace with updated values for listener re-registration
+	if err := db.Preload("Wallet").First(&workspace, workspaceID).Error; err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to reload workspace"})
+	}
+
+	if networkChanged && h.SolListener != nil {
+		_ = h.SolListener.UnregisterWorkspace(uint(workspaceID))
+		_ = h.SolListener.RegisterWorkspace(workspace, func(input models.ExecutorInput) {
+			rpcURL := h.SolListener.GetRPCURL(input.Workspace.Network)
+			h.ExecuteLuaTrigger(input.SolAmountIn, input.Signer, rpcURL, workspace.Wallet.GetPrivateKey(), workspace.ID)
+		})
 	}
 
 	return c.JSON(fiber.Map{"status": "success"})
@@ -241,6 +284,7 @@ func (h *Handlers) GetWorkspace(c *fiber.Ctx) error {
 		"address":     address,
 		"workspaceId": workspace.ID,
 		"name":        workspace.Name,
+		"network":     workspace.Network,
 	})
 }
 
@@ -248,11 +292,19 @@ func (h *Handlers) CreateWorkspace(c *fiber.Ctx) error {
 	db := database.GetDatabase()
 
 	type Request struct {
-		Name string `json:"name"`
+		Name    string         `json:"name"`
+		Network models.Network `json:"network"`
 	}
 	req := new(Request)
 	if err := c.BodyParser(req); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+	}
+
+	if req.Network == "" {
+		req.Network = models.NetworkMainnet
+	}
+	if !req.Network.IsValid() {
+		return c.Status(400).JSON(fiber.Map{"error": "Network must be 'mainnet' or 'devnet'"})
 	}
 
 	privKey := solana.NewWallet().PrivateKey.String()
@@ -265,15 +317,15 @@ func (h *Handlers) CreateWorkspace(c *fiber.Ctx) error {
 	wallet := &models.Wallet{EncryptedPrivateKey: encryptedPrivKey}
 	db.Create(wallet)
 
-	workspace := &models.Workspace{Name: req.Name, Wallet: *wallet}
+	workspace := &models.Workspace{Name: req.Name, Wallet: *wallet, Network: req.Network}
 	db.Create(workspace)
 
 	// Register the new workspace to the listener dynamically
 	if h.SolListener != nil {
-		h.SolListener.RegisterWorkspace(*workspace, func(workspace models.Workspace, input models.ExecutorInput) {
-			// We need a reference to rpcUrl here, usually we should store it in Handlers or models
-			// For now, use the devnet default
-			h.ExecuteLuaTrigger(input.SolAmountIn, input.Signer, "https://api.devnet.solana.com", workspace.Wallet.GetPrivateKey(), workspace.ID)
+		h.SolListener.RegisterWorkspace(*workspace, func(input models.ExecutorInput) {
+			// Get the correct RPC URL for the network
+			rpcURL := h.SolListener.GetRPCURL(input.Workspace.Network)
+			h.ExecuteLuaTrigger(input.SolAmountIn, input.Signer, rpcURL, workspace.Wallet.GetPrivateKey(), workspace.ID)
 		})
 	}
 

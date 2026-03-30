@@ -1,3 +1,4 @@
+import { useState } from "react";
 import Playground from "./components/Playground";
 import Sidebar from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -8,16 +9,25 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LoginPage } from "./components/LoginPage";
 
 function AuthenticatedApp() {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
   return (
     <WorkspaceProvider>
       <KeyProvider>
         <FlowProvider>
           <div className="flex h-screen w-screen bg-(--neo-bg) text-black overflow-hidden font-sans selection:bg-black/10">
-            <Sidebar />
-            <div className="relative grow flex flex-col">
-              <Header />
+            <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+            <div className="relative grow flex flex-col min-w-0">
+              <Header onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
               <Playground />
             </div>
+            {/* Mobile Overlay Backdrop */}
+            {isSidebarOpen && (
+              <div 
+                className="fixed inset-0 bg-black/40 z-30 lg:hidden" 
+                onClick={() => setIsSidebarOpen(false)}
+              />
+            )}
           </div>
         </FlowProvider>
       </KeyProvider>

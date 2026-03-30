@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import Modal from 'react-modal';
 import { useAuth } from '../context/AuthContext';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -9,14 +10,24 @@ interface SettingsModalProps {
 
 export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
   const { user, updateProfile, logout } = useAuth();
+  const { currentWorkspace, updateWorkspace } = useWorkspace();
   const [username, setUsername] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [wsName, setWsName] = useState(currentWorkspace?.name || '');
+  const [wsNetwork, setWsNetwork] = useState<'mainnet' | 'devnet'>(currentWorkspace?.network || 'devnet');
+
+  useEffect(() => {
+    if (currentWorkspace) {
+      setWsName(currentWorkspace.name);
+      setWsNetwork(currentWorkspace.network);
+    }
+  }, [currentWorkspace]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'username' | 'password'>('username');
+  const [activeTab, setActiveTab] = useState<'username' | 'password' | 'workspace'>('username');
 
   const resetForm = () => {
     setUsername('');
@@ -99,6 +110,29 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     }
   };
 
+  const handleWorkspaceSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (!currentWorkspace) return;
+
+    if (!wsName.trim()) {
+      setError('Workspace name is required');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await updateWorkspace(currentWorkspace.workspaceId, wsName.trim(), wsNetwork);
+      setSuccess('Workspace updated successfully!');
+    } catch (err) {
+      setError('Failed to update workspace');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <Modal
       isOpen={isOpen}
@@ -139,6 +173,14 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
             }`}
           >
             Change Password
+          </button>
+          <button
+            onClick={() => { setActiveTab('workspace'); resetForm(); setWsName(currentWorkspace?.name || ''); setWsNetwork(currentWorkspace?.network || 'devnet'); }}
+            className={`flex-1 py-3 text-[11px] font-black uppercase tracking-widest transition-colors border-l-4 border-black ${
+              activeTab === 'workspace' ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'
+            }`}
+          >
+            Workspace
           </button>
         </div>
 
@@ -200,7 +242,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                 {isLoading ? 'Updating...' : 'Update Username'}
               </button>
             </form>
-          ) : (
+          ) : activeTab === 'password' ? (
             <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-4">
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-widest text-black mb-2">
@@ -249,6 +291,60 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
               >
                 {isLoading ? 'Updating...' : 'Update Password'}
               </button>
+            </form>
+          ) : (
+            <form onSubmit={handleWorkspaceSubmit} className="flex flex-col gap-4">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-black mb-2">
+                  Workspace Name
+                </label>
+                <input
+                  type="text"
+                  value={wsName}
+                  onChange={(e) => setWsName(e.target.value)}
+                  className="neo-input w-full"
+                  placeholder="Enter workspace name"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-black mb-2">
+                  Network Mode
+                </label>
+                <div className="flex border-4 border-black overflow-hidden shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                  <button
+                    type="button"
+                    onClick={() => setWsNetwork('mainnet')}
+                    className={`flex-1 py-3 text-xs font-black uppercase transition-all ${
+                      wsNetwork === 'mainnet' ? 'bg-orange-400 text-black' : 'bg-white text-black hover:bg-slate-50'
+                    }`}
+                  >
+                    Mainnet
+                  </button>
+                  <div className="w-1 bg-black" />
+                  <button
+                    type="button"
+                    onClick={() => setWsNetwork('devnet')}
+                    className={`flex-1 py-3 text-xs font-black uppercase transition-all ${
+                      wsNetwork === 'devnet' ? 'bg-blue-400 text-black' : 'bg-white text-black hover:bg-slate-50'
+                    }`}
+                  >
+                    Devnet
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4">
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className={`w-full py-3 border-4 border-black text-sm font-black uppercase tracking-widest transition-all ${
+                    isLoading
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      : 'bg-emerald-400 text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
+                  }`}
+                >
+                  {isLoading ? 'Saving...' : 'Save Workspace Changes'}
+                </button>
+              </div>
             </form>
           )}
         </div>
