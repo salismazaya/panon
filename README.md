@@ -1,5 +1,5 @@
-Preview: https://youtu.be/aeLU4qg-FAs?si=1TxohuzTmQyVSuN-
 # Panon - No-Code Solana Automation Builder
+Preview: https://youtu.be/aeLU4qg-FAs?si=1TxohuzTmQyVSuN-
 
 **"Panon"** means **"Eye"** in Sundanese (a regional language from Indonesia). This project acts as the "eyes" for your Solana wallet, monitoring inbound transactions and triggering automated workflows in real-time.
 
@@ -82,8 +82,6 @@ VITE_API_URL=http://your-backend-api:3333
 - `frontend/`: React + Vite application for the visual builder.
 - `internal/`: Internal packages including models, database migrations, and handlers.
 - `cmd/`: Command-line utilities (e.g., migration tool).
-- `panon_saved.json`: Stores your visual flow and generated Lua code.
-- `wallet.json`: Stores your persistent Solana keypair (keep this safe!).
 
 ---
 
