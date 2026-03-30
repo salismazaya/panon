@@ -1,0 +1,8 @@
+services:
+  web:
+    build: .
+    ports:
+      - "127.0.0.1:3333:3333"
+    environment:
+      - JWT_SECRET=saliskasep
+      - SECRET_KEY=f8d8ec54d07702cd897d7357dd46645e

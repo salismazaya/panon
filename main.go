@@ -5,15 +5,14 @@ import (
 	"log"
 	"time"
 
-
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/joho/godotenv"
 
 	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/handlers"
-
 	"github.com/salismazaya/panon/internal/listener"
+	"github.com/salismazaya/panon/internal/middleware"
 	"github.com/salismazaya/panon/internal/models"
 )
 
@@ -38,19 +37,29 @@ func main() {
 	app := fiber.New()
 	app.Use(cors.New())
 
-	// Initialize handlers
+	// Initialize handlers and auth
 	h := handlers.New("", func() string { return "" })
-	h.RegisterRoutes(app)
+	authHandlers := handlers.NewAuthHandlers()
+
+	// Initialize auth middleware with token validation from authHandlers
+	auth := middleware.NewAuth(authHandlers.ValidateToken)
+	h.Auth = auth
+
+	h.RegisterRoutes(app, authHandlers)
 
 	fmt.Println("Panon API Server is live at http://localhost:3333")
 
-	// Create Solana listener
-	cfg := listener.Config{
+	// Create Solana listeners for both Mainnet and Devnet
+	mainnetCfg := listener.Config{
+		RpcUrl: "https://api.mainnet-beta.solana.com",
+		WSUrl:  "wss://api.mainnet-beta.solana.com",
+	}
+	devnetCfg := listener.Config{
 		RpcUrl: "https://api.devnet.solana.com",
 		WSUrl:  "wss://api.devnet.solana.com",
 	}
 
-	solListener, err := listener.New(cfg)
+	solListener, err := listener.NewMulti(mainnetCfg, devnetCfg)
 	if err != nil {
 		log.Fatalf("Failed to create Solana listener: %v", err)
 	}
@@ -60,8 +69,10 @@ func main() {
 	var workspaces []models.Workspace
 	db.Preload("Wallet").Find(&workspaces)
 	for _, ws := range workspaces {
-		err := solListener.RegisterWorkspace(ws, func(workspace models.Workspace, input models.ExecutorInput) {
-			h.ExecuteLuaTrigger(input.SolAmountIn, input.Signer, cfg.RpcUrl, workspace.Wallet.GetPrivateKey(), workspace.ID)
+		err := solListener.RegisterWorkspace(ws, func(input models.ExecutorInput) {
+			workspace := input.Workspace
+			rpcURL := solListener.GetRPCURL(workspace.Network)
+			h.ExecuteLuaTrigger(input.SolAmountIn, input.Signer, rpcURL, workspace.Wallet.GetPrivateKey(), workspace.ID)
 		})
 		if err != nil {
 			log.Printf("Failed to register workspace %s: %v", ws.Name, err)

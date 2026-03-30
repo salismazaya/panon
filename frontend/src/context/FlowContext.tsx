@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
-import { API_URL } from '../utils/api';
+import { API_URL, authFetch } from '../utils/api';
 import { nodeRegistry } from '../utils/nodeRegistry';
 import { compileToLua } from '../utils/compiler';
 import { useWorkspace } from './WorkspaceContext';
@@ -153,7 +153,7 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
 
     try {
       const lua = compileToLua(nodes, edges);
-      const response = await fetch(`${API_URL}/save`, {
+      const response = await authFetch(`${API_URL}/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -179,7 +179,7 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
   const loadFlow = useCallback(async () => {
     if (!currentWorkspace) return;
     try {
-      const response = await fetch(`${API_URL}/load?workspaceId=${currentWorkspace.workspaceId}`);
+      const response = await authFetch(`${API_URL}/load?workspaceId=${currentWorkspace.workspaceId}`);
       const data = await response.json();
 
       if (data.status === 'not_found') {

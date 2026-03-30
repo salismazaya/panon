@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useKey } from '../context/KeyContext';
 
 interface KeyModalProps {
@@ -8,7 +7,6 @@ interface KeyModalProps {
 
 export const KeyModal = ({ isOpen, onClose }: KeyModalProps) => {
   const { address } = useKey();
-  const [showPrivateKey, setShowPrivateKey] = useState(false);
 
   if (!isOpen) return null;
 
@@ -30,22 +28,6 @@ export const KeyModal = ({ isOpen, onClose }: KeyModalProps) => {
               </p>
             </div>
 
-            <button
-              onClick={() => setShowPrivateKey(!showPrivateKey)}
-              className="w-full px-4 py-2 bg-[#818cf8] border-2 border-black text-black font-black uppercase text-xs tracking-widest hover:bg-[#6366f1] transition-colors"
-            >
-              {showPrivateKey ? 'Hide' : 'Show'} Private Key
-            </button>
-
-            {showPrivateKey && (
-              <div className="p-4 bg-yellow-50 border-2 border-black">
-                <p className="text-xs font-black uppercase tracking-widest text-black mb-2">
-                  Private Key (Base58)
-                </p>
-
-              </div>
-            )}
-
             <div className="flex gap-4">
               <button
                 onClick={onClose}
@@ -53,15 +35,6 @@ export const KeyModal = ({ isOpen, onClose }: KeyModalProps) => {
               >
                 Close
               </button>
-            </div>
-
-            <div className="pt-4 border-t-2 border-black">
-              <p className="text-[10px] text-black opacity-60 font-bold leading-tight mb-2">
-                ⚠️ This is a newly generated wallet. Save the private key if you want to reuse it.
-              </p>
-              <p className="text-[10px] text-black opacity-60 font-bold leading-tight">
-                💡 A new wallet is generated every time the server restarts.
-              </p>
             </div>
           </div>
         )}

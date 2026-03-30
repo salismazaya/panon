@@ -2,15 +2,16 @@ import { useState } from 'react';
 import { useWorkspace } from '../context/WorkspaceContext';
 
 export const WorkspaceSelector = () => {
-    const { currentWorkspace, workspaces, selectWorkspace, createWorkspace, renameWorkspace } = useWorkspace();
+    const { currentWorkspace, workspaces, selectWorkspace, createWorkspace, updateWorkspace } = useWorkspace();
     const [isOpen, setIsOpen] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
     const [newWorkspaceName, setNewWorkspaceName] = useState('');
+    const [network, setNetwork] = useState<'mainnet' | 'devnet'>('devnet');
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (newWorkspaceName.trim()) {
-            await createWorkspace(newWorkspaceName.trim());
+            await createWorkspace(newWorkspaceName.trim(), network);
             setNewWorkspaceName('');
             setIsCreating(false);
             setIsOpen(false);
@@ -19,9 +20,11 @@ export const WorkspaceSelector = () => {
 
     const handleRename = async (e: React.MouseEvent, id: number, currentName: string) => {
         e.stopPropagation();
+        const ws = workspaces.find(w => w.workspaceId === id);
+        if (!ws) return;
         const newName = window.prompt('Enter new workspace name:', currentName);
         if (newName && newName.trim() && newName !== currentName) {
-            await renameWorkspace(id, newName.trim());
+            await updateWorkspace(id, newName.trim(), ws.network);
         }
     };
 
@@ -33,8 +36,13 @@ export const WorkspaceSelector = () => {
             >
                 <div className="flex flex-col items-start">
                     <span className="text-[10px] font-black uppercase text-slate-400 leading-none mb-1">Workspace</span>
-                    <span className="text-sm font-black uppercase truncate max-w-[150px]">
+                    <span className="text-sm font-black uppercase truncate max-w-[150px] flex items-center gap-2">
                         {currentWorkspace?.name || 'Select Workspace'}
+                        {currentWorkspace && (
+                            <span className={`text-[8px] px-1 border border-black leading-none py-0.5 ${currentWorkspace.network === 'mainnet' ? 'bg-orange-400' : 'bg-blue-400'}`}>
+                                {currentWorkspace.network === 'mainnet' ? 'M' : 'D'}
+                            </span>
+                        )}
                     </span>
                 </div>
                 <svg className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -52,9 +60,12 @@ export const WorkspaceSelector = () => {
                                         selectWorkspace(ws.workspaceId);
                                         setIsOpen(false);
                                     }}
-                                    className={`flex-1 text-left px-4 py-3 text-sm font-black uppercase hover:bg-slate-100 border-2 transition-colors ${currentWorkspace?.workspaceId === ws.workspaceId ? 'border-black bg-emerald-50' : 'border-transparent'}`}
+                                    className={`flex-1 text-left px-4 py-3 text-sm font-black uppercase hover:bg-slate-100 border-2 transition-colors flex items-center justify-between ${currentWorkspace?.workspaceId === ws.workspaceId ? 'border-black bg-emerald-50' : 'border-transparent'}`}
                                 >
-                                    {ws.name}
+                                    <span>{ws.name}</span>
+                                    <span className={`text-[8px] px-1 border border-black leading-none py-0.5 ${ws.network === 'mainnet' ? 'bg-orange-400 text-black' : 'bg-blue-400 text-black'}`}>
+                                        {ws.network === 'mainnet' ? 'MAINNET' : 'DEVNET'}
+                                    </span>
                                 </button>
                                 <button
                                     onClick={(e) => handleRename(e, ws.workspaceId, ws.name)}
@@ -80,6 +91,23 @@ export const WorkspaceSelector = () => {
                                     placeholder="Workspace Name..."
                                     className="w-full px-3 py-2 border-2 border-black text-xs font-black uppercase outline-none focus:bg-white"
                                 />
+                                <div className="flex border-2 border-black">
+                                    <button
+                                        type="button"
+                                        onClick={() => setNetwork('mainnet')}
+                                        className={`flex-1 py-1 text-[9px] font-black uppercase transition-colors ${network === 'mainnet' ? 'bg-orange-400 text-black' : 'bg-white hover:bg-slate-100'}`}
+                                    >
+                                        Mainnet
+                                    </button>
+                                    <div className="w-[2px] bg-black" />
+                                    <button
+                                        type="button"
+                                        onClick={() => setNetwork('devnet')}
+                                        className={`flex-1 py-1 text-[9px] font-black uppercase transition-colors ${network === 'devnet' ? 'bg-blue-400 text-black' : 'bg-white hover:bg-slate-100'}`}
+                                    >
+                                        Devnet
+                                    </button>
+                                </div>
                                 <div className="flex gap-2">
                                     <button
                                         type="submit"

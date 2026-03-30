@@ -13,7 +13,7 @@ import (
 	"github.com/salismazaya/panon/internal/models"
 )
 
-type Executor func(workspace models.Workspace, input models.ExecutorInput)
+type Executor func(input models.ExecutorInput)
 
 type Config struct {
 	RpcUrl string
@@ -46,7 +46,22 @@ func New(config Config) (*Listener, error) {
 	}, nil
 }
 
-func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(models.Workspace, models.ExecutorInput)) error {
+func (l *Listener) UnregisterWorkspace(workspaceID uint) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	sub, ok := l.subscriptions[workspaceID]
+	if !ok {
+		return nil
+	}
+
+	sub.Unsubscribe()
+	delete(l.subscriptions, workspaceID)
+	log.Printf("🔌 Unregistered workspace %d from listener", workspaceID)
+	return nil
+}
+
+func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(models.ExecutorInput)) error {
 	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
 	if err != nil {
 		return err
@@ -71,6 +86,11 @@ func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(m
 			got, err := sub.Recv(context.Background())
 			if err != nil {
 				log.Printf("Subscription error for workspace %d: %v", workspace.ID, err)
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			if got == nil {
+				log.Printf("Subscription closed for workspace %d, stopping listener", workspace.ID)
 				return
 			}
 			l.processTransaction(got.Value.Signature, workspace, executor)
@@ -85,6 +105,10 @@ func (l *Listener) ClearSignatures() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.processedSignatures = make(map[string]bool)
+}
+
+func (l *Listener) GetRPCURL(_ models.Network) string {
+	return l.config.RpcUrl
 }
 
 func (l *Listener) processTransaction(sig solana.Signature, workspace models.Workspace, executor Executor) {
@@ -150,10 +174,64 @@ func (l *Listener) processTransaction(sig solana.Signature, workspace models.Wor
 		log.Printf("   Sender: %s", sender)
 		log.Printf("   Signature: %s", sig)
 
-		executor(workspace, models.ExecutorInput{
+		executor(models.ExecutorInput{
 			Signature:   sig.String(),
 			SolAmountIn: amountSOL,
 			Signer:      sender,
+			Workspace:   workspace,
 		})
 	}
+}
+
+type MultiListener struct {
+	listeners map[models.Network]*Listener
+}
+
+func NewMulti(mainnetConfig, devnetConfig Config) (*MultiListener, error) {
+	mainnet, err := New(mainnetConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	devnet, err := New(devnetConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MultiListener{
+		listeners: map[models.Network]*Listener{
+			models.NetworkMainnet: mainnet,
+			models.NetworkDevnet:  devnet,
+		},
+	}, nil
+}
+
+func (ml *MultiListener) RegisterWorkspace(workspace models.Workspace, executor func(models.ExecutorInput)) error {
+	l, ok := ml.listeners[workspace.Network]
+	if !ok {
+		return errors.New("unsupported network: " + string(workspace.Network))
+	}
+	return l.RegisterWorkspace(workspace, executor)
+}
+
+func (ml *MultiListener) ClearSignatures() {
+	for _, l := range ml.listeners {
+		l.ClearSignatures()
+	}
+}
+
+func (ml *MultiListener) UnregisterWorkspace(workspaceID uint) error {
+	for _, l := range ml.listeners {
+		if err := l.UnregisterWorkspace(workspaceID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (ml *MultiListener) GetRPCURL(network models.Network) string {
+	if l, ok := ml.listeners[network]; ok {
+		return l.config.RpcUrl
+	}
+	return ""
 }

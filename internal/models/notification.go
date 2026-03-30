@@ -9,6 +9,7 @@ type Notification struct {
 }
 
 type ExecutorInput struct {
+	Workspace   Workspace
 	Signature   string
 	SolAmountIn float64
 	Signer      string
