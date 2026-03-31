@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	lua "github.com/yuin/gopher-lua"
@@ -14,6 +15,7 @@ import (
 	"github.com/salismazaya/panon/internal/helpers"
 	"github.com/salismazaya/panon/internal/middleware"
 	"github.com/salismazaya/panon/internal/models"
+	"github.com/salismazaya/panon/internal/service"
 	"github.com/salismazaya/panon/panon"
 )
 
@@ -47,13 +49,15 @@ type Handlers struct {
 		GetRPCURL(network models.Network) string
 	}
 	Auth *middleware.AuthMiddleware
+	TokenService *service.TokenService
 }
 
 // New creates a new Handlers instance.
-func New(defaultAddress string, getPrivateKey func() string) *Handlers {
+func New(defaultAddress string, getPrivateKey func() string, tokenService *service.TokenService) *Handlers {
 	return &Handlers{
 		DefaultAddress: defaultAddress,
 		GetPrivateKey:  getPrivateKey,
+		TokenService:   tokenService,
 	}
 }
 
@@ -155,6 +159,9 @@ func (h *Handlers) RegisterRoutes(app *fiber.App, authHandlers *AuthHandlers) {
 
 	// Endpoint to update user profile (username/password)
 	app.Put("/user", auth, authHandlers.UpdateProfile)
+
+	// Endpoint to reveal private key (requires password)
+	app.Post("/wallet/:walletId/reveal", auth, h.RevealPrivateKey)
 }
 
 func (h *Handlers) ListWorkspaces(c *fiber.Ctx) error {
@@ -407,4 +414,59 @@ func (h *Handlers) LoadFlow(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(saved)
+}
+// RevealPrivateKey returns decrypted private key after verifying user password.
+func (h *Handlers) RevealPrivateKey(c *fiber.Ctx) error {
+	walletID := c.Params("walletId")
+	if walletID == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "walletId is required"})
+	}
+
+	type Request struct {
+		Password string `json:"password"`
+	}
+	req := new(Request)
+	if err := c.BodyParser(req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+
+	if req.Password == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Password is required"})
+	}
+
+	// Extract user ID from token
+	authHeader := c.Get("Authorization")
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 {
+		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
+	}
+	token := parts[1]
+
+	claims, err := h.TokenService.ValidateToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"error": "Invalid token"})
+	}
+
+	db := database.GetDatabase()
+
+	// Verify user password
+	var user models.User
+	if err := db.First(&user, claims.UserID).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "User not found"})
+	}
+
+	if !user.CheckPassword(req.Password) {
+		return c.Status(401).JSON(fiber.Map{"error": "Incorrect password"})
+	}
+
+	// Fetch wallet and reveal private key
+	var wallet models.Wallet
+	if err := db.First(&wallet, walletID).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Wallet not found"})
+	}
+
+	return c.JSON(fiber.Map{
+		"walletId":   wallet.ID,
+		"privateKey": wallet.GetPrivateKey(),
+	})
 }

@@ -38,8 +38,8 @@ func main() {
 	app.Use(cors.New())
 
 	// Initialize handlers and auth
-	h := handlers.New("", func() string { return "" })
 	authHandlers := handlers.NewAuthHandlers()
+	h := handlers.New("", func() string { return "" }, authHandlers.TokenService)
 
 	// Initialize auth middleware with token validation from authHandlers
 	auth := middleware.NewAuth(authHandlers.ValidateToken)

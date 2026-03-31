@@ -70,7 +70,7 @@ func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(m
 
 	sub, err := l.wsClient.LogsSubscribeMentions(
 		pubkey,
-		rpc.CommitmentFinalized,
+		rpc.CommitmentConfirmed,
 	)
 
 	if err != nil {
@@ -90,8 +90,25 @@ func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(m
 				continue
 			}
 			if got == nil {
-				log.Printf("Subscription closed for workspace %d, stopping listener", workspace.ID)
-				return
+				log.Printf("Subscription closed for workspace %d, reconnecting...", workspace.ID)
+				
+				newSub, err := l.wsClient.LogsSubscribeMentions(
+					pubkey,
+					rpc.CommitmentConfirmed,
+				)
+				if err != nil {
+					log.Printf("Re-subscription error for workspace %d: %v", workspace.ID, err)
+					time.Sleep(1 * time.Second)
+					continue
+				}
+
+				// Sync the internal state
+				l.mu.Lock()
+				l.subscriptions[workspace.ID] = newSub
+				l.mu.Unlock()
+
+				sub = newSub
+				continue
 			}
 			l.processTransaction(got.Value.Signature, workspace, executor)
 		}
@@ -127,7 +144,7 @@ func (l *Listener) processTransaction(sig solana.Signature, workspace models.Wor
 			context.Background(),
 			sig,
 			&rpc.GetTransactionOpts{
-				Commitment: rpc.CommitmentFinalized,
+				Commitment: rpc.CommitmentConfirmed,
 				Encoding:   solana.EncodingBase64,
 			},
 		)
@@ -187,7 +204,7 @@ type MultiListener struct {
 	listeners map[models.Network]*Listener
 }
 
-func NewMulti(mainnetConfig, devnetConfig Config) (*MultiListener, error) {
+func NewMulti(mainnetConfig Config, devnetConfig Config) (*MultiListener, error) {
 	mainnet, err := New(mainnetConfig)
 	if err != nil {
 		return nil, err
