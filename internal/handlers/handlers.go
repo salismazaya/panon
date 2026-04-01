@@ -314,6 +314,7 @@ func (h *Handlers) GetWorkspace(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"address":     address,
 		"workspaceId": workspace.ID,
+		"walletId":    wallet.ID,
 		"name":        workspace.Name,
 		"network":     workspace.Network,
 	})

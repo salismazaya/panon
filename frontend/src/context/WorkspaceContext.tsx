@@ -3,6 +3,7 @@ import { API_URL, authFetch } from '../utils/api';
 
 export interface Workspace {
     workspaceId: number;
+    walletId?: number;
     name: string;
     network: 'mainnet' | 'devnet';
     address?: string;

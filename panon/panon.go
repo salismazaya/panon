@@ -70,7 +70,7 @@ func (c *Client) getBalance(L *lua.LState) int {
 	balance, err := client.GetBalance(
 		context.Background(),
 		pubkey,
-		rpc.CommitmentFinalized,
+		rpc.CommitmentConfirmed,
 	)
 
 	if err != nil {
@@ -141,15 +141,16 @@ func (c *Client) transferSol(L *lua.LState) int {
 	}
 
 	var sig solana.Signature
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 5; i++ {
 		sig, err = client.SendTransaction(context.Background(), tx)
 		if err == nil {
 			break
 		}
 
-		if strings.Contains(err.Error(), "insufficient funds") {
-			log.Printf("⚠️ Insufficient funds detected for SOL transfer (Attempt %d/3), retrying in 2s...", i+1)
-			time.Sleep(2 * time.Second)
+		errStr := err.Error()
+		if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") {
+			log.Printf("⚠️ [transferSol] Account not ready or insufficient funds (Attempt %d/5), retrying in 5s...", i+1)
+			time.Sleep(5 * time.Second)
 			continue
 		}
 		L.RaiseError("failed to send transaction: %v", err)
@@ -222,12 +223,19 @@ func (c *Client) transfer(L *lua.LState) int {
 			return 0
 		}
 
-		signature, err := client.SendTransaction(
-			context.Background(),
-			tx,
-		)
+		var signature solana.Signature
+		for i := 0; i < 5; i++ {
+			signature, err = client.SendTransaction(context.Background(), tx)
+			if err == nil {
+				break
+			}
 
-		if err != nil {
+			errStr := err.Error()
+			if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") {
+				log.Printf("⚠️ [transfer] SOL account not ready or insufficient funds (Attempt %d/5), retrying in 5s...", i+1)
+				time.Sleep(5 * time.Second)
+				continue
+			}
 			L.RaiseError("failed to send transaction: %v", err)
 			return 0
 		}
@@ -571,16 +579,17 @@ func (c *Client) transferToken(L *lua.LState) int {
 	}
 
 	var sig solana.Signature
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 5; i++ {
 		sig, err = client.SendTransaction(context.Background(), tx)
 		if err == nil {
 			break
 		}
 
-		if strings.Contains(err.Error(), "insufficient funds") || strings.Contains(err.Error(), "0x1") {
-			log.Printf("⚠️ [transferToken] Insufficient funds detected for %s (Attempt %d/3), retrying in 2s...", tokenMint, i+1)
-			time.Sleep(2 * time.Second)
-			if i < 2 {
+		errStr := err.Error()
+		if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") {
+			log.Printf("⚠️ [transferToken] Account not ready or insufficient funds for %s (Attempt %d/5), retrying in 5s...", tokenMint, i+1)
+			time.Sleep(5 * time.Second)
+			if i < 4 {
 				if latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized); errHash == nil {
 					tx.Message.RecentBlockhash = latestBlockhash.Value.Blockhash
 				}
