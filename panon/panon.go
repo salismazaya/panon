@@ -148,9 +148,21 @@ func (c *Client) transferSol(L *lua.LState) int {
 		}
 
 		errStr := err.Error()
-		if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") {
-			log.Printf("⚠️ [transferSol] Account not ready or insufficient funds (Attempt %d/5), retrying in 5s...", i+1)
+		if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") || strings.Contains(errStr, "Blockhash") {
+			log.Printf("⚠️ [transferSol] Account not ready, insufficient funds, or stale blockhash (Attempt %d/5), retrying in 5s...", i+1)
 			time.Sleep(5 * time.Second)
+			if i < 4 {
+				if latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized); errHash == nil {
+					tx.Message.RecentBlockhash = latestBlockhash.Value.Blockhash
+					// RE-SIGN REQUIRED!
+					_, _ = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+						if key == account.PublicKey() {
+							return &account
+						}
+						return nil
+					})
+				}
+			}
 			continue
 		}
 		L.RaiseError("failed to send transaction: %v", err)
@@ -231,9 +243,21 @@ func (c *Client) transfer(L *lua.LState) int {
 			}
 
 			errStr := err.Error()
-			if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") {
-				log.Printf("⚠️ [transfer] SOL account not ready or insufficient funds (Attempt %d/5), retrying in 5s...", i+1)
+			if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") || strings.Contains(errStr, "Blockhash") {
+				log.Printf("⚠️ [transfer] SOL account not ready, insufficient funds, or stale blockhash (Attempt %d/5), retrying in 5s...", i+1)
 				time.Sleep(5 * time.Second)
+				if i < 4 {
+					if latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized); errHash == nil {
+						tx.Message.RecentBlockhash = latestBlockhash.Value.Blockhash
+						// RE-SIGN REQUIRED!
+						_, _ = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+							if key == account.PublicKey() {
+								return &account
+							}
+							return nil
+						})
+					}
+				}
 				continue
 			}
 			L.RaiseError("failed to send transaction: %v", err)
@@ -423,7 +447,16 @@ func (c *Client) getTokenBalance(L *lua.LState) int {
 		return 0
 	}
 
-	ata, _, err := solana.FindAssociatedTokenAddress(accountPubkey, tokenMintPubkey)
+	// Fetch mint info to determine token program
+	mintAccount, err := client.GetAccountInfo(context.Background(), tokenMintPubkey)
+	if err != nil {
+		L.RaiseError("%s", "failed to get mint info: "+err.Error())
+		return 0
+	}
+	tokenProgram := mintAccount.Value.Owner
+
+	// Derive ATAs using the correct program
+	ata, _, err := FindAssociatedTokenAddressByProgram(accountPubkey, tokenMintPubkey, tokenProgram)
 	if err != nil {
 		L.RaiseError("%s", "failed to find ATA: "+err.Error())
 		return 0
@@ -586,12 +619,19 @@ func (c *Client) transferToken(L *lua.LState) int {
 		}
 
 		errStr := err.Error()
-		if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") {
-			log.Printf("⚠️ [transferToken] Account not ready or insufficient funds for %s (Attempt %d/5), retrying in 5s...", tokenMint, i+1)
+		if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") || strings.Contains(errStr, "Blockhash") {
+			log.Printf("⚠️ [transferToken] Account not ready, insufficient funds, or stale blockhash for %s (Attempt %d/5), retrying in 5s...", tokenMint, i+1)
 			time.Sleep(5 * time.Second)
 			if i < 4 {
 				if latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized); errHash == nil {
 					tx.Message.RecentBlockhash = latestBlockhash.Value.Blockhash
+					// RE-SIGN REQUIRED!
+					_, _ = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+						if key == account.PublicKey() {
+							return &account
+						}
+						return nil
+					})
 				}
 			}
 			continue
