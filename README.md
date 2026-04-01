@@ -5,6 +5,8 @@ Preview: https://youtu.be/aeLU4qg-FAs?si=1TxohuzTmQyVSuN-
 
 Panon is a modular, visual no-code builder designed to automate Solana transactions. It allows you to build complex logic (like "If balance > X transfer to Y") using a drag-and-drop interface, which then generates and executes Lua scripts in response to real-time on-chain events.
 
+![Panon Preview](images/preview.jpg)
+
 ## 🚀 Features
 
 - **Visual Flow Builder**: Create automation logic using hierarchical blocks (powered by React Flow).

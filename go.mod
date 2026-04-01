@@ -3,12 +3,15 @@ module github.com/salismazaya/panon
 go 1.26.1
 
 require (
+	github.com/gagliardetto/binary v0.8.0
 	github.com/gagliardetto/solana-go v1.14.0
 	github.com/go-gormigrate/gormigrate/v2 v2.1.5
 	github.com/gofiber/fiber/v2 v2.52.12
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/joho/godotenv v1.5.1
 	github.com/yuin/gopher-lua v1.1.1
 	golang.org/x/crypto v0.14.0
+	golang.org/x/time v0.0.0-20191024005414-555d28b269f0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
 )
@@ -21,9 +24,7 @@ require (
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/color v1.9.0 // indirect
-	github.com/gagliardetto/binary v0.8.0 // indirect
 	github.com/gagliardetto/treeout v0.1.4 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/rpc v1.2.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
@@ -54,5 +55,4 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/term v0.13.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
-	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
 )

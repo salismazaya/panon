@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/salismazaya/panon/panon"
@@ -14,6 +15,7 @@ import (
 // Executor handles Lua script execution.
 type Executor struct {
 	rpcURL     string
+	rpcClient  *rpc.Client
 	privateKey string
 	address    string
 }
@@ -27,6 +29,7 @@ func New(rpcURL, privateKey string) (*Executor, error) {
 
 	return &Executor{
 		rpcURL:     rpcURL,
+		rpcClient:  rpc.New(rpcURL),
 		privateKey: privateKey,
 		address:    pk.PublicKey().String(),
 	}, nil
@@ -58,7 +61,7 @@ func (e *Executor) ExecuteTrigger(amount float64, sender string) {
 	L := lua.NewState()
 	defer L.Close()
 
-	client := panon.New(e.rpcURL, e.privateKey)
+	client := panon.New(e.rpcClient, e.privateKey)
 	client.Register(L)
 
 	L.SetGlobal("rpcUrl", lua.LString(e.rpcURL))

@@ -127,7 +127,8 @@ func newFundedClient(t *testing.T) clientInfo {
 	airdrop(t, pubkey, 2*solana.LAMPORTS_PER_SOL)
 	waitForBalance(t, pubkey, 1.9)
 
-	client := New(localRPC, pk.String())
+	rpcClient := rpc.New(localRPC)
+	client := New(rpcClient, pk.String())
 
 	return clientInfo{
 		Client:     client,

@@ -9,8 +9,10 @@ type Notification struct {
 }
 
 type ExecutorInput struct {
-	Workspace   Workspace
-	Signature   string
-	SolAmountIn float64
-	Signer      string
+	Workspace      Workspace
+	Signature      string
+	SolAmountIn    float64
+	TokenAmountIn  float64
+	TokenMint      string
+	Signer         string
 }

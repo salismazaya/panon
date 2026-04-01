@@ -10,12 +10,13 @@ const SolanaIcon = () => (
     </svg>
 );
 
-const GetSolBalanceFields = ({ data, onFieldChange }: any) => (
+const GetSolBalanceFields = ({ data, onFieldChange, errors }: any) => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <VariableAssignField
             label="Balance Variable"
             value={data.balanceAmount || ''}
             onChange={(val) => onFieldChange('balanceAmount', val)}
+            error={errors?.balanceAmount}
             helper="The balance will be stored in this variable (e.g. 'balance')."
         />
 
@@ -35,9 +36,10 @@ export function GetSolBalanceNode({ id, data, type }: any) {
             colorScheme="blue"
             icon={<SolanaIcon />}
             modalTitle="Get SOL Balance Setup"
-            modalBody={(draft, update) => (
+            modalBody={(draft, update, errors) => (
                 <GetSolBalanceFields
                     data={draft}
+                    errors={errors}
                     onFieldChange={(field: string, val: string) => {
                         const currentDraftVal = draft[field];
                         if (currentDraftVal && currentDraftVal !== val) {
