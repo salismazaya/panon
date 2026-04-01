@@ -4,18 +4,23 @@ import (
 	"context"
 	"errors"
 	"log"
+	"math/rand"
+	"regexp"
 	"sync"
 	"time"
 
+	bin "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/ws"
-	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/models"
 	"golang.org/x/time/rate"
 )
 
-type Executor func(ctx context.Context, input models.ExecutorInput)
+var tokenAddrRegex = regexp.MustCompile(`on_token_([1-9A-HJ-NP-Za-km-z]{32,44})_received`)
+
+
 
 type Config struct {
 	RpcUrl string
@@ -23,14 +28,16 @@ type Config struct {
 }
 
 type Listener struct {
-	config              Config
-	rpcClient           *rpc.Client
-	wsClient            *ws.Client
-	mu                  sync.RWMutex
-	lastWSReconnect     time.Time
-	subscriptions       map[solana.PublicKey]chan struct{}
-	processedSignatures map[string]bool
-	limiter             *rate.Limiter
+	config                     Config
+	rpcClient                  *rpc.Client
+	wsClient                   *ws.Client
+	mu                         sync.RWMutex
+	lastWSReconnect            time.Time
+	reconnectDelay             time.Duration
+	subscriptions              map[solana.PublicKey]chan struct{}
+	workspaceSubscribedPubkeys map[uint][]solana.PublicKey
+	processedSignatures        map[string]bool
+	limiter                    *rate.Limiter
 }
 
 func New(config Config) (*Listener, error) {
@@ -42,38 +49,210 @@ func New(config Config) (*Listener, error) {
 	rpcClient := rpc.New(config.RpcUrl)
 
 	listener := &Listener{
-		config:              config,
-		wsClient:            wsClient,
-		rpcClient:           rpcClient,
-		subscriptions:       make(map[solana.PublicKey]chan struct{}),
-		processedSignatures: make(map[string]bool),
-		limiter:             rate.NewLimiter(5, 5),
+		config:                     config,
+		wsClient:                   wsClient,
+		rpcClient:                  rpcClient,
+		reconnectDelay:             2 * time.Second,
+		subscriptions:              make(map[solana.PublicKey]chan struct{}),
+		workspaceSubscribedPubkeys: make(map[uint][]solana.PublicKey),
+		processedSignatures:        make(map[string]bool),
+		limiter:                    rate.NewLimiter(5, 5),
 	}
 
 	return listener, nil
 }
 
-func (l *Listener) UnregisterWorkspace(workspaceID uint) error {
-	var workspace models.Workspace
+func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) error {
+	// 1. Bersihkan listener lama untuk workspace ini jika ada
+	l.UnregisterWorkspace(workspace.ID)
 
-	db := database.GetDatabase()
-
-	db.Preload("Wallet").First(&workspace, workspaceID)
-
-	account, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
+	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
 	if err != nil {
 		return err
 	}
+	pubkey := pk.PublicKey()
 
-	pubkey := account.PublicKey()
+	// 2. Setup Monitor SOL
+	var lastLamports uint64
+	account, err := l.rpcClient.GetAccountInfo(context.Background(), pubkey)
+	if err == nil && account != nil {
+		lastLamports = account.Value.Lamports
+	}
 
-	l.DisconnectPubKey(pubkey)
+	l.ListenPubKey(pubkey, func(ctx context.Context, got *ws.AccountResult) {
+		if got == nil || got.Value == nil {
+			return
+		}
+		newLamports := got.Value.Lamports
+		if newLamports > lastLamports {
+			l.processSOLChange(ctx, lastLamports, newLamports, pubkey, workspace, executor)
+		}
+		lastLamports = newLamports
+	})
 
-	log.Printf("🔌 Unregistered workspace %d from listener", workspaceID)
+	l.mu.Lock()
+	l.workspaceSubscribedPubkeys[workspace.ID] = append(l.workspaceSubscribedPubkeys[workspace.ID], pubkey)
+	l.mu.Unlock()
+
+	// 3. Setup Monitor Token-token yang didaftarkan di Lua
+	tokenMatches := tokenAddrRegex.FindAllStringSubmatch(workspace.FlowState, -1)
+	for _, match := range tokenMatches {
+		mint := solana.MustPublicKeyFromBase58(match[1])
+		l.registerTokenMonitor(context.Background(), workspace, pubkey, mint, executor)
+	}
+
 	return nil
 }
 
-func (l *Listener) ListenPubKey(pubkey solana.PublicKey, callback func(context.Context, *solana.Signature)) {
+func (l *Listener) registerTokenMonitor(ctx context.Context, workspace models.Workspace, walletPubkey solana.PublicKey, mint solana.PublicKey, executor func(context.Context, models.ExecutorInput)) {
+	// Identifikasi Program ID (Token atau Token-2022)
+	tokenProgram := solana.TokenProgramID
+	mintAccount, _ := l.rpcClient.GetAccountInfo(ctx, mint)
+	if mintAccount != nil && mintAccount.Value.Owner.String() == "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb" {
+		tokenProgram = solana.MustPublicKeyFromBase58("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
+	}
+
+	// ATA seeds: [wallet, token_program, mint]
+	ata, _, _ := solana.FindProgramAddress(
+		[][]byte{
+			walletPubkey.Bytes(),
+			tokenProgram.Bytes(),
+			mint.Bytes(),
+		},
+		solana.SPLAssociatedTokenAccountProgramID,
+	)
+
+	l.mu.Lock()
+	l.workspaceSubscribedPubkeys[workspace.ID] = append(l.workspaceSubscribedPubkeys[workspace.ID], ata)
+	l.mu.Unlock()
+
+	var lastAmount uint64
+	account, err := l.rpcClient.GetAccountInfo(ctx, ata)
+	if err == nil && account != nil {
+		var tokenAccount token.Account
+		if err := tokenAccount.UnmarshalWithDecoder(bin.NewBinDecoder(account.Value.Data.GetBinary())); err == nil {
+			lastAmount = tokenAccount.Amount
+		}
+	}
+
+	l.ListenPubKey(ata, func(ctx context.Context, res *ws.AccountResult) {
+		if res == nil || res.Value == nil {
+			return
+		}
+
+		var tokenAccount token.Account
+		if err := tokenAccount.UnmarshalWithDecoder(bin.NewBinDecoder(res.Value.Data.GetBinary())); err != nil {
+			return
+		}
+
+		newAmount := tokenAccount.Amount
+		if newAmount > lastAmount {
+			l.processTokenChange(ctx, lastAmount, newAmount, ata, mint, workspace, executor)
+		}
+		lastAmount = newAmount
+	})
+
+	log.Printf("📥 Registered token monitor for workspace %s, Mint: %s, ATA: %s", workspace.Name, mint, ata)
+}
+
+func (l *Listener) processTokenChange(ctx context.Context, pre uint64, post uint64, ata solana.PublicKey, mint solana.PublicKey, workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) {
+	// Berikan waktu sedikit agar indexer RPC sempat mencatat signature-nya
+	time.Sleep(2 * time.Second)
+
+	sigs, err := l.rpcClient.GetSignaturesForAddressWithOpts(
+		ctx,
+		ata,
+		&rpc.GetSignaturesForAddressOpts{
+			Limit:      pointer(1),
+			Commitment: rpc.CommitmentConfirmed,
+		},
+	)
+
+	if err != nil || len(sigs) == 0 {
+		return
+	}
+
+	sig := sigs[0].Signature
+
+	// Cek duplikasi signature
+	l.mu.Lock()
+	if l.processedSignatures[sig.String()] {
+		l.mu.Unlock()
+		return
+	}
+	l.processedSignatures[sig.String()] = true
+	l.mu.Unlock()
+
+	// Fetch transaction untuk mendapatkan sender
+	tx, err := l.rpcClient.GetTransaction(ctx, sig, &rpc.GetTransactionOpts{Commitment: rpc.CommitmentConfirmed, Encoding: solana.EncodingBase64})
+	if err != nil || tx == nil || tx.Meta == nil {
+		return
+	}
+
+	parsedTx, err := tx.Transaction.GetTransaction()
+	if err != nil {
+		return
+	}
+
+	sender := "unknown"
+	if len(parsedTx.Message.AccountKeys) > 0 {
+		sender = parsedTx.Message.AccountKeys[0].String()
+	}
+
+	// Fetch decimals
+	decimals := uint8(9) // default
+	mintAccount, err := l.rpcClient.GetAccountInfo(ctx, mint)
+	if err == nil && mintAccount != nil {
+		mintData := mintAccount.Value.Data.GetBinary()
+		if len(mintData) >= 45 {
+			decimals = mintData[44]
+		}
+	}
+
+	uiAmount := float64(post-pre) / math_Pow10(int(decimals))
+
+	log.Printf("🪙 Detected Token Inbound: %.6f of %s", uiAmount, mint)
+
+	executor(ctx, models.ExecutorInput{
+		Workspace:     workspace,
+		Signature:     sig.String(),
+		TokenAmountIn: uiAmount,
+		TokenMint:     mint.String(),
+		Signer:        sender,
+	})
+}
+
+func math_Pow10(n int) float64 {
+	res := 1.0
+	for i := 0; i < n; i++ {
+		res *= 10
+	}
+	return res
+}
+
+func (l *Listener) UnregisterWorkspace(workspaceID uint) error {
+	l.mu.Lock()
+	pubkeys, ok := l.workspaceSubscribedPubkeys[workspaceID]
+	if !ok {
+		l.mu.Unlock()
+		return nil
+	}
+
+	log.Printf("🔌 Unregistering workspace %d, disconnecting %d accounts...", workspaceID, len(pubkeys))
+	for _, pk := range pubkeys {
+		channel, ok := l.subscriptions[pk]
+		if ok {
+			close(channel)
+			delete(l.subscriptions, pk)
+		}
+	}
+	delete(l.workspaceSubscribedPubkeys, workspaceID)
+	l.mu.Unlock()
+
+	return nil
+}
+
+func (l *Listener) ListenPubKey(pubkey solana.PublicKey, callback func(context.Context, *ws.AccountResult)) {
 	l.mu.Lock()
 	_, ok := l.subscriptions[pubkey]
 
@@ -95,7 +274,7 @@ func (l *Listener) ListenPubKey(pubkey solana.PublicKey, callback func(context.C
 			cancel()
 		}()
 
-		var sub *ws.LogSubscription
+		var sub *ws.AccountSubscription
 		var err error
 
 		for {
@@ -114,7 +293,7 @@ func (l *Listener) ListenPubKey(pubkey solana.PublicKey, callback func(context.C
 				wsClient := l.wsClient
 				l.mu.RUnlock()
 
-				sub, err = wsClient.LogsSubscribeMentions(
+				sub, err = wsClient.AccountSubscribe(
 					pubkey,
 					rpc.CommitmentConfirmed,
 				)
@@ -127,7 +306,6 @@ func (l *Listener) ListenPubKey(pubkey solana.PublicKey, callback func(context.C
 			}
 
 			// Menggunakan timeout 2 menit untuk mendeteksi koneksi "hang" (idle)
-			// Jika dalam 2 menit tidak ada data sama sekali, kita anggap koneksi bermasalah.
 			recvCtx, cancelRecv := context.WithTimeout(ctx, 2*time.Minute)
 			got, err := sub.Recv(recvCtx)
 			cancelRecv()
@@ -142,10 +320,8 @@ func (l *Listener) ListenPubKey(pubkey solana.PublicKey, callback func(context.C
 					go sub.Unsubscribe()
 				}
 				sub = nil
-				
-				// Langsung pemicu re-koneksi client utama tanpa menunggu iterasi berikutnya
+
 				l.ensureWSConnection(ctx, pubkey.String())
-				
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -161,7 +337,7 @@ func (l *Listener) ListenPubKey(pubkey solana.PublicKey, callback func(context.C
 				continue
 			}
 
-			go callback(ctx, &got.Value.Signature)
+			go callback(ctx, got)
 		}
 	}()
 }
@@ -176,56 +352,43 @@ func (l *Listener) DisconnectPubKey(pubkey solana.PublicKey) {
 	l.mu.Unlock()
 }
 
-// ensureWSConnection mendeteksi dan mencoba memperbaiki koneksi WebSocket utama jika diperlukan.
-// Hanya satu goroutine yang bisa melakukan re-koneksi dalam rentang waktu tertentu.
 func (l *Listener) ensureWSConnection(ctx context.Context, source string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// Jangan re-connect terlalu sering (minimal jeda 5 detik antar percobaan global)
-	if time.Since(l.lastWSReconnect) < 5*time.Second {
+	if time.Since(l.lastWSReconnect) < l.reconnectDelay {
 		return
 	}
 
-	log.Printf("Reconnecting main WebSocket client (triggered by %s)...", source)
-	
-	// Gunakan timeout 10 detik untuk proses koneksi agar tidak hang
+	log.Printf("Reconnecting main WebSocket client (triggered by %s). Current backoff: %v...", source, l.reconnectDelay)
+
 	connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	newWS, err := ws.Connect(connectCtx, l.config.WSUrl)
 	if err != nil {
 		log.Printf("Failed to reconnect main WebSocket (triggered by %s): %v", source, err)
-		l.lastWSReconnect = time.Now() // Tetap update agar tidak spamming
+		l.reconnectDelay *= 2
+		if l.reconnectDelay > 60*time.Second {
+			l.reconnectDelay = 60 * time.Second
+		}
+		jitter := time.Duration(rand.Int63n(int64(l.reconnectDelay / 10)))
+		l.reconnectDelay += jitter
+		l.lastWSReconnect = time.Now()
 		return
 	}
 
 	oldWS := l.wsClient
 	l.wsClient = newWS
 	l.lastWSReconnect = time.Now()
+	l.reconnectDelay = 2 * time.Second
 
-	// Tutup yang lama secara asynchronous agar tidak blocking
 	if oldWS != nil {
 		go oldWS.Close()
 	}
 	log.Printf("Main WebSocket client reconnected successfully (triggered by %s)", source)
 }
 
-func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) error {
-	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
-	if err != nil {
-		return err
-	}
-	pubkey := pk.PublicKey()
-
-	l.ListenPubKey(pubkey, func(ctx context.Context, sig *solana.Signature) {
-		l.processTransaction(ctx, *sig, workspace, executor)
-	})
-
-	return nil
-}
-
-// ClearSignatures clears the processed signatures cache.
 func (l *Listener) ClearSignatures() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -237,10 +400,29 @@ func (l *Listener) GetRPCURL(_ models.Network) string {
 }
 
 func (l *Listener) GetRPCClient() *rpc.Client {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 	return l.rpcClient
 }
 
-func (l *Listener) processTransaction(ctx context.Context, sig solana.Signature, workspace models.Workspace, executor Executor) {
+func (l *Listener) processSOLChange(ctx context.Context, preLamports, postLamports uint64, myPubkey solana.PublicKey, workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) {
+	sigs, err := l.rpcClient.GetSignaturesForAddressWithOpts(
+		ctx,
+		myPubkey,
+		&rpc.GetSignaturesForAddressOpts{
+			Limit:      pointer(1),
+			Commitment: rpc.CommitmentConfirmed,
+		},
+	)
+	if err != nil || len(sigs) == 0 {
+		return
+	}
+
+	sig := sigs[0].Signature
+	l.processTransactionBySignature(ctx, sig, workspace, executor)
+}
+
+func (l *Listener) processTransactionBySignature(ctx context.Context, sig solana.Signature, workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) {
 	l.mu.Lock()
 	if l.processedSignatures[sig.String()] {
 		l.mu.Unlock()
@@ -270,10 +452,6 @@ func (l *Listener) processTransaction(ctx context.Context, sig solana.Signature,
 	}
 
 	if err != nil || tx == nil || tx.Meta == nil {
-		return
-	}
-
-	if err := l.limiter.Wait(ctx); err != nil {
 		return
 	}
 
@@ -379,7 +557,7 @@ func (ml *MultiListener) GetRPCClient(network models.Network) *rpc.Client {
 	return nil
 }
 
-func (ml *MultiListener) ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *solana.Signature)) error {
+func (ml *MultiListener) ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *ws.AccountResult)) error {
 	l, ok := ml.listeners[network]
 	if !ok {
 		return errors.New("unsupported network: " + string(network))
@@ -392,4 +570,8 @@ func (ml *MultiListener) DisconnectPubKey(pubkey solana.PublicKey) {
 	for _, l := range ml.listeners {
 		l.DisconnectPubKey(pubkey)
 	}
+}
+
+func pointer[T any](v T) *T {
+	return &v
 }

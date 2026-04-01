@@ -3,6 +3,7 @@ module github.com/salismazaya/panon
 go 1.26.1
 
 require (
+	github.com/gagliardetto/binary v0.8.0
 	github.com/gagliardetto/solana-go v1.14.0
 	github.com/go-gormigrate/gormigrate/v2 v2.1.5
 	github.com/gofiber/fiber/v2 v2.52.12
@@ -23,7 +24,6 @@ require (
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/color v1.9.0 // indirect
-	github.com/gagliardetto/binary v0.8.0 // indirect
 	github.com/gagliardetto/treeout v0.1.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/rpc v1.2.0 // indirect

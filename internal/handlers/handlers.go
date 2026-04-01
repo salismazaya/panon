@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/gagliardetto/solana-go/rpc/ws"
 	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/helpers"
 	"github.com/salismazaya/panon/internal/middleware"
@@ -51,7 +51,7 @@ type Handlers struct {
 		UnregisterWorkspace(workspaceID uint) error
 		GetRPCURL(network models.Network) string
 		GetRPCClient(network models.Network) *rpc.Client
-		ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *solana.Signature)) error
+		ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *ws.AccountResult)) error
 		DisconnectPubKey(pubkey solana.PublicKey)
 	}
 	Auth         *middleware.AuthMiddleware
@@ -64,7 +64,7 @@ func New(defaultAddress string, getPrivateKey func() string, tokenService *servi
 	UnregisterWorkspace(workspaceID uint) error
 	GetRPCURL(network models.Network) string
 	GetRPCClient(network models.Network) *rpc.Client
-	ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *solana.Signature)) error
+	ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *ws.AccountResult)) error
 	DisconnectPubKey(pubkey solana.PublicKey)
 }) *Handlers {
 	return &Handlers{
@@ -75,13 +75,9 @@ func New(defaultAddress string, getPrivateKey func() string, tokenService *servi
 	}
 }
 
-// ExecuteLuaTrigger executes the Lua trigger when SOL is received.
-func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, amount float64, sender string, network models.Network, privateKey string, workspaceId uint) {
-	db := database.GetDatabase()
-
-	var workspace models.Workspace
-
-	db.First(&workspace, workspaceId)
+// ExecuteLuaTrigger executes the Lua trigger when SOL or Token is received.
+func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorInput) {
+	workspace := input.Workspace
 	flowState := workspace.FlowState
 
 	if flowState == "" {
@@ -102,29 +98,42 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, amount float64, sender
 	defer L.Close()
 	L.SetContext(ctx)
 
-	pk, err := solana.PrivateKeyFromBase58(privateKey)
+	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
 	if err != nil {
 		return
 	}
 	address := pk.PublicKey().String()
-	rpcClient := h.SolListener.GetRPCClient(network)
 
-	client := panon.New(rpcClient, privateKey)
+	rpcClient := h.SolListener.GetRPCClient(workspace.Network)
+	client := panon.New(rpcClient, workspace.Wallet.GetPrivateKey())
 	client.Register(L)
 
 	L.SetGlobal("rpcUrl", lua.LString(h.SolListener.GetRPCURL(workspace.Network)))
-	L.SetGlobal("privateKey", lua.LString(privateKey))
+	L.SetGlobal("privateKey", lua.LString(workspace.Wallet.GetPrivateKey()))
 	L.SetGlobal("my_address", lua.LString(address))
 
-	log.Println("Executing Lua code: ", code)
 	if err := L.DoString(string(code)); err != nil {
-		fmt.Println("{}", err)
+		log.Printf("❌ Lua Error: %v", err)
 		return
 	}
 
-	fn := L.GetGlobal("on_sol_received")
+	var fn lua.LValue
+	var amount float64
+	var triggerName string
+
+	if input.TokenMint != "" {
+		// Token transfer
+		triggerName = fmt.Sprintf("on_token_%s_received", input.TokenMint)
+		fn = L.GetGlobal(triggerName)
+		amount = input.TokenAmountIn
+	} else {
+		// SOL transfer
+		triggerName = "on_sol_received"
+		fn = L.GetGlobal(triggerName)
+		amount = input.SolAmountIn
+	}
+
 	if fn.Type() != lua.LTFunction {
-		fmt.Println("{}", err)
 		return
 	}
 
@@ -132,12 +141,12 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, amount float64, sender
 		Fn:      fn,
 		NRet:    0,
 		Protect: true,
-	}, lua.LNumber(amount), lua.LString(sender))
+	}, lua.LNumber(amount), lua.LString(input.Signer))
 
 	if err != nil {
-		fmt.Println("{}", err)
-
-		return
+		log.Printf("❌ Error executing Lua callback %s: %v", triggerName, err)
+	} else {
+		log.Printf("✅ Lua callback %s executed successfully", triggerName)
 	}
 }
 
@@ -250,7 +259,7 @@ func (h *Handlers) UpdateWorkspace(c *fiber.Ctx) error {
 	if networkChanged && h.SolListener != nil {
 		_ = h.SolListener.UnregisterWorkspace(uint(workspaceID))
 		_ = h.SolListener.RegisterWorkspace(workspace, func(ctx context.Context, input models.ExecutorInput) {
-			h.ExecuteLuaTrigger(ctx, input.SolAmountIn, input.Signer, workspace.Network, workspace.Wallet.GetPrivateKey(), workspace.ID)
+			h.ExecuteLuaTrigger(ctx, input)
 		})
 	}
 
@@ -345,7 +354,7 @@ func (h *Handlers) CreateWorkspace(c *fiber.Ctx) error {
 	// Register the new workspace to the listener dynamically
 	if h.SolListener != nil {
 		h.SolListener.RegisterWorkspace(*workspace, func(ctx context.Context, input models.ExecutorInput) {
-			h.ExecuteLuaTrigger(ctx, input.SolAmountIn, input.Signer, workspace.Network, workspace.Wallet.GetPrivateKey(), workspace.ID)
+			h.ExecuteLuaTrigger(ctx, input)
 		})
 	}
 
@@ -377,9 +386,7 @@ func (h *Handlers) DeriveAddress(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"address": pk.PublicKey().String()})
 }
 
-var registeredTokenAddresses []solana.PublicKey
-
-// SaveFlow saves the Lua flow to the database.
+// SaveFlow saves the Lua flow to the database and refreshes the listener.
 func (h *Handlers) SaveFlow(c *fiber.Ctx) error {
 	req := new(SaveRequest)
 	if err := c.BodyParser(req); err != nil {
@@ -395,42 +402,28 @@ func (h *Handlers) SaveFlow(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to marshal JSON: " + err.Error()})
 	}
 
-	// Parse Solana address from Lua code using regex
-	// Pattern: on_token_<address>_received
-	tokenAddrRegex := regexp.MustCompile(`on_token_([1-9A-HJ-NP-Za-km-z]{32,44})_received`)
-
-	tokenAddresses := tokenAddrRegex.FindAllStringSubmatch(req.Code, -1)
-	var pubkeys []solana.PublicKey
-
-	for _, tokenAddress := range tokenAddresses {
-		pubkey := solana.MustPublicKeyFromBase58(tokenAddress[1])
-		pubkeys = append(pubkeys, pubkey)
-		registeredTokenAddresses = append(registeredTokenAddresses, pubkey)
-	}
-
 	db := database.GetDatabase()
 	var workspace models.Workspace
-	db.First(&workspace, req.WorkspaceID)
-
-	// Disconnect old listeners
-	for _, pubkey := range registeredTokenAddresses {
-		h.SolListener.DisconnectPubKey(pubkey)
+	if err := db.Preload("Wallet").First(&workspace, req.WorkspaceID).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Workspace not found"})
 	}
 
-	for _, pubkey := range pubkeys {
-		h.SolListener.ListenPubKey(workspace.Network, pubkey, func(ctx context.Context, s *solana.Signature) {
-			fmt.Println("{}", s)
-			h.HandleTokenTransaction(ctx, s, workspace.Network, req.WorkspaceID, pubkey.String())
-		})
-	}
-
-	if err := db.Model(&models.Workspace{}).Where("id = ?", req.WorkspaceID).Update("flow_state", string(data)).Error; err != nil {
+	// Update FlowState
+	workspace.FlowState = string(data)
+	if err := db.Save(&workspace).Error; err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to save to database"})
+	}
+
+	// Refresh listener (otomatis memparse triggers baru)
+	if h.SolListener != nil {
+		h.SolListener.RegisterWorkspace(workspace, func(ctx context.Context, input models.ExecutorInput) {
+			h.ExecuteLuaTrigger(ctx, input)
+		})
 	}
 
 	return c.JSON(fiber.Map{
 		"status":  "success",
-		"message": "Saved to database",
+		"message": "Saved to database and listener refreshed",
 	})
 }
 
