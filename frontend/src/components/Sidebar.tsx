@@ -1,5 +1,5 @@
 import { If } from "../nodes/ControlNodes";
-import { Transfer } from "../nodes/ActionNodes";
+import { Transfer, TransferToken } from "../nodes/ActionNodes";
 import { useFlow } from "../context/FlowContext";
 import { OnSolReceived } from "../nodes/OnSolReceived";
 import { Arithmetic } from "../nodes/ComputeNodes";
@@ -66,8 +66,12 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean, onClose:
                         onClick={() => addNode('GetSolBalance', { label: "Get SOL Balance" })}
                     />
                     <Transfer
-                        data={{ label: "Transfer" }}
-                        onClick={() => addNode('Transfer', { label: "Transfer" })}
+                        data={{ label: "Transfer SOL" }}
+                        onClick={() => addNode('Transfer', { label: "Transfer SOL" })}
+                    />
+                    <TransferToken
+                        data={{ label: "Transfer Token" }}
+                        onClick={() => addNode('TransferToken', { label: "Transfer Token" })}
                     />
                     <Arithmetic
                         data={{ label: "Arithmetic" }}

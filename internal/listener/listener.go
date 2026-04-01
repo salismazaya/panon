@@ -12,6 +12,7 @@ import (
 	"github.com/gagliardetto/solana-go/rpc/ws"
 	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/models"
+	"golang.org/x/time/rate"
 )
 
 type Executor func(ctx context.Context, input models.ExecutorInput)
@@ -26,8 +27,10 @@ type Listener struct {
 	rpcClient           *rpc.Client
 	wsClient            *ws.Client
 	mu                  sync.RWMutex
+	lastWSReconnect     time.Time
 	subscriptions       map[solana.PublicKey]chan struct{}
 	processedSignatures map[string]bool
+	limiter             *rate.Limiter
 }
 
 func New(config Config) (*Listener, error) {
@@ -44,6 +47,7 @@ func New(config Config) (*Listener, error) {
 		rpcClient:           rpcClient,
 		subscriptions:       make(map[solana.PublicKey]chan struct{}),
 		processedSignatures: make(map[string]bool),
+		limiter:             rate.NewLimiter(5, 5),
 	}
 
 	return listener, nil
@@ -95,52 +99,69 @@ func (l *Listener) ListenPubKey(pubkey solana.PublicKey, callback func(context.C
 		var err error
 
 		for {
+			// Pengecekan apakah context sudah dibatalkan
+			select {
+			case <-ctx.Done():
+				if sub != nil {
+					go sub.Unsubscribe()
+				}
+				return
+			default:
+			}
+
 			if sub == nil {
-				sub, err = l.wsClient.LogsSubscribeMentions(
+				l.mu.RLock()
+				wsClient := l.wsClient
+				l.mu.RUnlock()
+
+				sub, err = wsClient.LogsSubscribeMentions(
 					pubkey,
 					rpc.CommitmentConfirmed,
 				)
 				if err != nil {
-					log.Printf("Subscription error: %s", pubkey)
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(1 * time.Second):
-						continue
-					}
+					log.Printf("Subscription error for %s: %v", pubkey, err)
+					l.ensureWSConnection(ctx, pubkey.String())
+					time.Sleep(2 * time.Second)
+					continue
 				}
 			}
 
-			got, err := sub.Recv(ctx)
+			// Menggunakan timeout 2 menit untuk mendeteksi koneksi "hang" (idle)
+			// Jika dalam 2 menit tidak ada data sama sekali, kita anggap koneksi bermasalah.
+			recvCtx, cancelRecv := context.WithTimeout(ctx, 2*time.Minute)
+			got, err := sub.Recv(recvCtx)
+			cancelRecv()
+
 			if err != nil {
 				if ctx.Err() != nil {
-					// DisconnectPubkey dipanggil sehingga context menjadi Done()
-					if sub != nil {
-						sub.Unsubscribe()
-					}
 					return
 				}
 
-				log.Printf("Subscription receive error: %s, reconnecting...", pubkey)
+				log.Printf("Subscription receive error for %s: %v, reconnecting...", pubkey, err)
 				if sub != nil {
-					sub.Unsubscribe()
+					go sub.Unsubscribe()
 				}
 				sub = nil
+				
+				// Langsung pemicu re-koneksi client utama tanpa menunggu iterasi berikutnya
+				l.ensureWSConnection(ctx, pubkey.String())
+				
 				time.Sleep(1 * time.Second)
 				continue
 			}
 
 			if got == nil {
-				log.Printf("Subscription closed %s, reconnecting...", pubkey)
+				log.Printf("Subscription closed for %s, reconnecting...", pubkey)
 				if sub != nil {
-					sub.Unsubscribe()
+					go sub.Unsubscribe()
 				}
 				sub = nil
+				l.ensureWSConnection(ctx, pubkey.String())
 				time.Sleep(1 * time.Second)
 				continue
 			}
 
-			callback(ctx, &got.Value.Signature)
+			go callback(ctx, &got.Value.Signature)
 		}
 	}()
 }
@@ -155,6 +176,41 @@ func (l *Listener) DisconnectPubKey(pubkey solana.PublicKey) {
 	l.mu.Unlock()
 }
 
+// ensureWSConnection mendeteksi dan mencoba memperbaiki koneksi WebSocket utama jika diperlukan.
+// Hanya satu goroutine yang bisa melakukan re-koneksi dalam rentang waktu tertentu.
+func (l *Listener) ensureWSConnection(ctx context.Context, source string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// Jangan re-connect terlalu sering (minimal jeda 5 detik antar percobaan global)
+	if time.Since(l.lastWSReconnect) < 5*time.Second {
+		return
+	}
+
+	log.Printf("Reconnecting main WebSocket client (triggered by %s)...", source)
+	
+	// Gunakan timeout 10 detik untuk proses koneksi agar tidak hang
+	connectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	newWS, err := ws.Connect(connectCtx, l.config.WSUrl)
+	if err != nil {
+		log.Printf("Failed to reconnect main WebSocket (triggered by %s): %v", source, err)
+		l.lastWSReconnect = time.Now() // Tetap update agar tidak spamming
+		return
+	}
+
+	oldWS := l.wsClient
+	l.wsClient = newWS
+	l.lastWSReconnect = time.Now()
+
+	// Tutup yang lama secara asynchronous agar tidak blocking
+	if oldWS != nil {
+		go oldWS.Close()
+	}
+	log.Printf("Main WebSocket client reconnected successfully (triggered by %s)", source)
+}
+
 func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) error {
 	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
 	if err != nil {
@@ -165,8 +221,6 @@ func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(c
 	l.ListenPubKey(pubkey, func(ctx context.Context, sig *solana.Signature) {
 		l.processTransaction(ctx, *sig, workspace, executor)
 	})
-
-	log.Printf("WORKSPACE REGISTER")
 
 	return nil
 }
@@ -182,6 +236,10 @@ func (l *Listener) GetRPCURL(_ models.Network) string {
 	return l.config.RpcUrl
 }
 
+func (l *Listener) GetRPCClient() *rpc.Client {
+	return l.rpcClient
+}
+
 func (l *Listener) processTransaction(ctx context.Context, sig solana.Signature, workspace models.Workspace, executor Executor) {
 	l.mu.Lock()
 	if l.processedSignatures[sig.String()] {
@@ -194,6 +252,9 @@ func (l *Listener) processTransaction(ctx context.Context, sig solana.Signature,
 	var tx *rpc.GetTransactionResult
 	var err error
 	for i := 0; i < 3; i++ {
+		if err := l.limiter.Wait(ctx); err != nil {
+			return
+		}
 		tx, err = l.rpcClient.GetTransaction(
 			ctx,
 			sig,
@@ -209,6 +270,10 @@ func (l *Listener) processTransaction(ctx context.Context, sig solana.Signature,
 	}
 
 	if err != nil || tx == nil || tx.Meta == nil {
+		return
+	}
+
+	if err := l.limiter.Wait(ctx); err != nil {
 		return
 	}
 
@@ -305,6 +370,13 @@ func (ml *MultiListener) GetRPCURL(network models.Network) string {
 		return l.config.RpcUrl
 	}
 	return ""
+}
+
+func (ml *MultiListener) GetRPCClient(network models.Network) *rpc.Client {
+	if l, ok := ml.listeners[network]; ok {
+		return l.rpcClient
+	}
+	return nil
 }
 
 func (ml *MultiListener) ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *solana.Signature)) error {

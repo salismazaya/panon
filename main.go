@@ -71,8 +71,7 @@ func main() {
 	for _, ws := range workspaces {
 		err := solListener.RegisterWorkspace(ws, func(ctx context.Context, input models.ExecutorInput) {
 			workspace := input.Workspace
-			rpcURL := solListener.GetRPCURL(workspace.Network)
-			h.ExecuteLuaTrigger(ctx, input.SolAmountIn, input.Signer, rpcURL, workspace.Wallet.GetPrivateKey(), workspace.ID)
+			h.ExecuteLuaTrigger(ctx, input.SolAmountIn, input.Signer, workspace.Network, workspace.Wallet.GetPrivateKey(), workspace.ID)
 		})
 		if err != nil {
 			log.Printf("Failed to register workspace %s: %v", ws.Name, err)

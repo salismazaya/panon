@@ -1,7 +1,7 @@
 import { Background, ReactFlow } from "@xyflow/react";
 import { OnUSDCReceivedNode } from "../nodes/OnUSDCReceived";
 import { IfNode, LoopNode } from "../nodes/ControlNodes";
-import { TransferNode } from "../nodes/ActionNodes";
+import { TransferNode, TransferTokenNode } from "../nodes/ActionNodes";
 import '@xyflow/react/dist/style.css';
 import { useFlow } from "../context/FlowContext";
 import { OnSolReceivedNode } from "../nodes/OnSolReceived";
@@ -18,7 +18,8 @@ const nodeTypes = {
     Compute: ArithmeticNode,
     OnSolReceived: OnSolReceivedNode,
     GetSolBalance: GetSolBalanceNode,
-    OnTokenReceived: OnTokenReceivedNode
+    OnTokenReceived: OnTokenReceivedNode,
+    TransferToken: TransferTokenNode
 };
 
 export default function Playground() {

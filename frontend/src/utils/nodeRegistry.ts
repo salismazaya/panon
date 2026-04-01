@@ -164,7 +164,7 @@ export const nodeRegistry: Record<string, NodeDef> = {
         validate: (node) => {
             const errors: Record<string, string> = {};
             const data = node.data as any;
-            const { variable, operator, comparisonData } = data || {};
+            const { variable, comparisonData } = data || {};
 
             if (!variable) errors.variable = "Target variable is required";
 
@@ -243,10 +243,47 @@ export const nodeRegistry: Record<string, NodeDef> = {
         },
         generate: (node, { getNext, indent }) => {
             const data = node.data as any;
-            const fnName = 'transfer';
+            const fnName = 'transferSol';
             const recipient = formatLuaValue(data.recipientData, '"0x..."');
             const amount = formatLuaValue(data.amountData, '0');
-            const token = `"${data.token || 'SOL'}"`;
+
+            const core = `${fnName}(${recipient}, ${amount})`;
+            const nextPart = getNext(node.id);
+
+            return withWrapper(node, core, nextPart, indent);
+        }
+    },
+
+    TransferToken: {
+        validate: (node) => {
+            const errors: Record<string, string> = {};
+            const data = node.data as any;
+            const rData = data.recipientData;
+            const aData = data.amountData;
+            const tAddress = data.tokenAddress;
+
+            if (!tAddress || tAddress.trim() === '') {
+                errors.tokenAddress = "Token address is required";
+            } else if (!isValidBase58(tAddress)) {
+                errors.tokenAddress = "Token address must be a valid Solana base58 address";
+            }
+
+            if (!rData || !rData.value?.trim()) {
+                errors.recipientData = "Recipient address is required";
+            }
+
+            if (!aData || (aData.mode === 'variable' ? !aData.value?.trim() : (aData.value === undefined || aData.value === null || aData.value.toString().trim() === ''))) {
+                errors.amountData = "Transfer amount is required";
+            }
+
+            return Object.keys(errors).length > 0 ? errors : null;
+        },
+        generate: (node, { getNext, indent }) => {
+            const data = node.data as any;
+            const fnName = 'transferToken';
+            const recipient = formatLuaValue(data.recipientData, '"0x..."');
+            const amount = formatLuaValue(data.amountData, '0');
+            const token = `"${data.tokenAddress || ''}"`;
 
             const core = `${fnName}(${recipient}, ${token}, ${amount})`;
             const nextPart = getNext(node.id);

@@ -13,6 +13,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/helpers"
 	"github.com/salismazaya/panon/internal/middleware"
@@ -49,6 +50,7 @@ type Handlers struct {
 		RegisterWorkspace(workspace models.Workspace, executor func(ctx context.Context, input models.ExecutorInput)) error
 		UnregisterWorkspace(workspaceID uint) error
 		GetRPCURL(network models.Network) string
+		GetRPCClient(network models.Network) *rpc.Client
 		ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *solana.Signature)) error
 		DisconnectPubKey(pubkey solana.PublicKey)
 	}
@@ -61,6 +63,7 @@ func New(defaultAddress string, getPrivateKey func() string, tokenService *servi
 	RegisterWorkspace(workspace models.Workspace, executor func(ctx context.Context, input models.ExecutorInput)) error
 	UnregisterWorkspace(workspaceID uint) error
 	GetRPCURL(network models.Network) string
+	GetRPCClient(network models.Network) *rpc.Client
 	ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *solana.Signature)) error
 	DisconnectPubKey(pubkey solana.PublicKey)
 }) *Handlers {
@@ -73,7 +76,7 @@ func New(defaultAddress string, getPrivateKey func() string, tokenService *servi
 }
 
 // ExecuteLuaTrigger executes the Lua trigger when SOL is received.
-func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, amount float64, sender string, rpcURL, privateKey string, workspaceId uint) {
+func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, amount float64, sender string, network models.Network, privateKey string, workspaceId uint) {
 	db := database.GetDatabase()
 
 	var workspace models.Workspace
@@ -104,11 +107,12 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, amount float64, sender
 		return
 	}
 	address := pk.PublicKey().String()
+	rpcClient := h.SolListener.GetRPCClient(network)
 
-	client := panon.New(rpcURL, privateKey)
+	client := panon.New(rpcClient, privateKey)
 	client.Register(L)
 
-	L.SetGlobal("rpcUrl", lua.LString(rpcURL))
+	L.SetGlobal("rpcUrl", lua.LString(h.SolListener.GetRPCURL(workspace.Network)))
 	L.SetGlobal("privateKey", lua.LString(privateKey))
 	L.SetGlobal("my_address", lua.LString(address))
 
@@ -246,8 +250,7 @@ func (h *Handlers) UpdateWorkspace(c *fiber.Ctx) error {
 	if networkChanged && h.SolListener != nil {
 		_ = h.SolListener.UnregisterWorkspace(uint(workspaceID))
 		_ = h.SolListener.RegisterWorkspace(workspace, func(ctx context.Context, input models.ExecutorInput) {
-			rpcURL := h.SolListener.GetRPCURL(input.Workspace.Network)
-			h.ExecuteLuaTrigger(ctx, input.SolAmountIn, input.Signer, rpcURL, workspace.Wallet.GetPrivateKey(), workspace.ID)
+			h.ExecuteLuaTrigger(ctx, input.SolAmountIn, input.Signer, workspace.Network, workspace.Wallet.GetPrivateKey(), workspace.ID)
 		})
 	}
 
@@ -342,9 +345,7 @@ func (h *Handlers) CreateWorkspace(c *fiber.Ctx) error {
 	// Register the new workspace to the listener dynamically
 	if h.SolListener != nil {
 		h.SolListener.RegisterWorkspace(*workspace, func(ctx context.Context, input models.ExecutorInput) {
-			// Get the correct RPC URL for the network
-			rpcURL := h.SolListener.GetRPCURL(input.Workspace.Network)
-			h.ExecuteLuaTrigger(ctx, input.SolAmountIn, input.Signer, rpcURL, workspace.Wallet.GetPrivateKey(), workspace.ID)
+			h.ExecuteLuaTrigger(ctx, input.SolAmountIn, input.Signer, workspace.Network, workspace.Wallet.GetPrivateKey(), workspace.ID)
 		})
 	}
 
@@ -407,17 +408,22 @@ func (h *Handlers) SaveFlow(c *fiber.Ctx) error {
 		registeredTokenAddresses = append(registeredTokenAddresses, pubkey)
 	}
 
+	db := database.GetDatabase()
+	var workspace models.Workspace
+	db.First(&workspace, req.WorkspaceID)
+
+	// Disconnect old listeners
 	for _, pubkey := range registeredTokenAddresses {
 		h.SolListener.DisconnectPubKey(pubkey)
 	}
 
 	for _, pubkey := range pubkeys {
-		h.SolListener.ListenPubKey(models.NetworkDevnet, pubkey, func(ctx context.Context, s *solana.Signature) {
+		h.SolListener.ListenPubKey(workspace.Network, pubkey, func(ctx context.Context, s *solana.Signature) {
 			fmt.Println("{}", s)
+			h.HandleTokenTransaction(ctx, s, workspace.Network, req.WorkspaceID, pubkey.String())
 		})
 	}
 
-	db := database.GetDatabase()
 	if err := db.Model(&models.Workspace{}).Where("id = ?", req.WorkspaceID).Update("flow_state", string(data)).Error; err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to save to database"})
 	}
