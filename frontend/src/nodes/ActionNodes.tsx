@@ -23,7 +23,7 @@ export function TransferNode({ id, data, type }: any) {
             colorScheme="blue"
             icon={<SendIcon />}
             modalTitle="Transfer Setup"
-            modalBody={(draft, update) => (
+            modalBody={(draft, update, errors) => (
                 <div className="space-y-6">
                     <FieldGroup label="Token" helper="The cryptocurrency to be sent.">
                         <StandardSelect
@@ -38,6 +38,7 @@ export function TransferNode({ id, data, type }: any) {
                         label="Recipient Address"
                         data={draft.recipientData || { mode: 'static', value: '' }}
                         onChange={(val) => update({ recipientData: val })}
+                        error={errors?.recipientData}
                     />
 
                     <VariableOrValueSelect
@@ -46,6 +47,7 @@ export function TransferNode({ id, data, type }: any) {
                             ? { mode: 'variable', value: availableVars[0] }
                             : { mode: 'static', value: '0' })}
                         onChange={(val) => update({ amountData: val })}
+                        error={errors?.amountData}
                     />
                 </div>
             )}

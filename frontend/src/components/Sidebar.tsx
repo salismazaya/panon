@@ -4,6 +4,7 @@ import { useFlow } from "../context/FlowContext";
 import { OnSolReceived } from "../nodes/OnSolReceived";
 import { Arithmetic } from "../nodes/ComputeNodes";
 import { GetSolBalance } from "../nodes/GetSolBalance";
+import { OnTokenReceived } from "../nodes/OnTokenReceived";
 
 export default function Sidebar({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
     const { addNode } = useFlow();
@@ -24,7 +25,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean, onClose:
                     </div>
                 </div>
                 {/* Close button for mobile */}
-                <button 
+                <button
                     onClick={onClose}
                     className="lg:hidden p-2 border-2 border-black hover:bg-black hover:text-white transition-colors"
                 >
@@ -53,11 +54,16 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean, onClose:
                     onClick={() => addNode('OnSolReceived', { label: "On Solana Received" })}
                 />
 
+                <OnTokenReceived
+                    data={{ label: "On Token Received" }}
+                    onClick={() => addNode('OnTokenReceived', { label: "On Token Received" })}
+                />
+
                 <div className="mt-4 border-t-2 border-black pt-6">
                     <label className="text-[12px] font-black text-black uppercase tracking-widest mb-4 block">Actions Library</label>
-                    <GetSolBalance 
-                        data={{ label: "Get SOL Balance" }} 
-                        onClick={() => addNode('GetSolBalance', { label: "Get SOL Balance" })} 
+                    <GetSolBalance
+                        data={{ label: "Get SOL Balance" }}
+                        onClick={() => addNode('GetSolBalance', { label: "Get SOL Balance" })}
                     />
                     <Transfer
                         data={{ label: "Transfer" }}

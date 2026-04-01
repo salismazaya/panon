@@ -10,10 +10,11 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/ws"
+	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/models"
 )
 
-type Executor func(input models.ExecutorInput)
+type Executor func(ctx context.Context, input models.ExecutorInput)
 
 type Config struct {
 	RpcUrl string
@@ -25,7 +26,7 @@ type Listener struct {
 	rpcClient           *rpc.Client
 	wsClient            *ws.Client
 	mu                  sync.RWMutex
-	subscriptions       map[uint]*ws.LogSubscription
+	subscriptions       map[solana.PublicKey]chan struct{}
 	processedSignatures map[string]bool
 }
 
@@ -37,82 +38,135 @@ func New(config Config) (*Listener, error) {
 
 	rpcClient := rpc.New(config.RpcUrl)
 
-	return &Listener{
+	listener := &Listener{
 		config:              config,
 		wsClient:            wsClient,
 		rpcClient:           rpcClient,
-		subscriptions:       make(map[uint]*ws.LogSubscription),
+		subscriptions:       make(map[solana.PublicKey]chan struct{}),
 		processedSignatures: make(map[string]bool),
-	}, nil
+	}
+
+	return listener, nil
 }
 
 func (l *Listener) UnregisterWorkspace(workspaceID uint) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	var workspace models.Workspace
 
-	sub, ok := l.subscriptions[workspaceID]
-	if !ok {
-		return nil
+	db := database.GetDatabase()
+
+	db.Preload("Wallet").First(&workspace, workspaceID)
+
+	account, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
+	if err != nil {
+		return err
 	}
 
-	sub.Unsubscribe()
-	delete(l.subscriptions, workspaceID)
+	pubkey := account.PublicKey()
+
+	l.DisconnectPubKey(pubkey)
+
 	log.Printf("🔌 Unregistered workspace %d from listener", workspaceID)
 	return nil
 }
 
-func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(models.ExecutorInput)) error {
+func (l *Listener) ListenPubKey(pubkey solana.PublicKey, callback func(context.Context, *solana.Signature)) {
+	l.mu.Lock()
+	_, ok := l.subscriptions[pubkey]
+
+	if !ok {
+		l.subscriptions[pubkey] = make(chan struct{})
+	} else {
+		l.mu.Unlock()
+		return
+	}
+	done := l.subscriptions[pubkey]
+	l.mu.Unlock()
+
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		// Menunggu sinyal disconnect
+		go func() {
+			<-done
+			cancel()
+		}()
+
+		var sub *ws.LogSubscription
+		var err error
+
+		for {
+			if sub == nil {
+				sub, err = l.wsClient.LogsSubscribeMentions(
+					pubkey,
+					rpc.CommitmentConfirmed,
+				)
+				if err != nil {
+					log.Printf("Subscription error: %s", pubkey)
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(1 * time.Second):
+						continue
+					}
+				}
+			}
+
+			got, err := sub.Recv(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					// DisconnectPubkey dipanggil sehingga context menjadi Done()
+					if sub != nil {
+						sub.Unsubscribe()
+					}
+					return
+				}
+
+				log.Printf("Subscription receive error: %s, reconnecting...", pubkey)
+				if sub != nil {
+					sub.Unsubscribe()
+				}
+				sub = nil
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
+			if got == nil {
+				log.Printf("Subscription closed %s, reconnecting...", pubkey)
+				if sub != nil {
+					sub.Unsubscribe()
+				}
+				sub = nil
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
+			callback(ctx, &got.Value.Signature)
+		}
+	}()
+}
+
+func (l *Listener) DisconnectPubKey(pubkey solana.PublicKey) {
+	l.mu.Lock()
+	channel, ok := l.subscriptions[pubkey]
+	if ok {
+		close(channel)
+		delete(l.subscriptions, pubkey)
+	}
+	l.mu.Unlock()
+}
+
+func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) error {
 	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
 	if err != nil {
 		return err
 	}
 	pubkey := pk.PublicKey()
 
-	sub, err := l.wsClient.LogsSubscribeMentions(
-		pubkey,
-		rpc.CommitmentConfirmed,
-	)
+	l.ListenPubKey(pubkey, func(ctx context.Context, sig *solana.Signature) {
+		l.processTransaction(ctx, *sig, workspace, executor)
+	})
 
-	if err != nil {
-		return errors.New("failed to subscribe to logs")
-	}
-
-	l.mu.Lock()
-	l.subscriptions[workspace.ID] = sub
-	l.mu.Unlock()
-
-	go func() {
-		for {
-			got, err := sub.Recv(context.Background())
-			if err != nil {
-				log.Printf("Subscription error for workspace %d: %v", workspace.ID, err)
-				time.Sleep(1 * time.Second)
-				continue
-			}
-			if got == nil {
-				log.Printf("Subscription closed for workspace %d, reconnecting...", workspace.ID)
-				
-				newSub, err := l.wsClient.LogsSubscribeMentions(
-					pubkey,
-					rpc.CommitmentConfirmed,
-				)
-				if err != nil {
-					log.Printf("Re-subscription error for workspace %d: %v", workspace.ID, err)
-					time.Sleep(1 * time.Second)
-					continue
-				}
-
-				// Sync the internal state
-				l.mu.Lock()
-				l.subscriptions[workspace.ID] = newSub
-				l.mu.Unlock()
-
-				sub = newSub
-				continue
-			}
-			l.processTransaction(got.Value.Signature, workspace, executor)
-		}
-	}()
+	log.Printf("WORKSPACE REGISTER")
 
 	return nil
 }
@@ -128,7 +182,7 @@ func (l *Listener) GetRPCURL(_ models.Network) string {
 	return l.config.RpcUrl
 }
 
-func (l *Listener) processTransaction(sig solana.Signature, workspace models.Workspace, executor Executor) {
+func (l *Listener) processTransaction(ctx context.Context, sig solana.Signature, workspace models.Workspace, executor Executor) {
 	l.mu.Lock()
 	if l.processedSignatures[sig.String()] {
 		l.mu.Unlock()
@@ -141,7 +195,7 @@ func (l *Listener) processTransaction(sig solana.Signature, workspace models.Wor
 	var err error
 	for i := 0; i < 3; i++ {
 		tx, err = l.rpcClient.GetTransaction(
-			context.Background(),
+			ctx,
 			sig,
 			&rpc.GetTransactionOpts{
 				Commitment: rpc.CommitmentConfirmed,
@@ -191,7 +245,7 @@ func (l *Listener) processTransaction(sig solana.Signature, workspace models.Wor
 		log.Printf("   Sender: %s", sender)
 		log.Printf("   Signature: %s", sig)
 
-		executor(models.ExecutorInput{
+		executor(ctx, models.ExecutorInput{
 			Signature:   sig.String(),
 			SolAmountIn: amountSOL,
 			Signer:      sender,
@@ -223,7 +277,7 @@ func NewMulti(mainnetConfig Config, devnetConfig Config) (*MultiListener, error)
 	}, nil
 }
 
-func (ml *MultiListener) RegisterWorkspace(workspace models.Workspace, executor func(models.ExecutorInput)) error {
+func (ml *MultiListener) RegisterWorkspace(workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) error {
 	l, ok := ml.listeners[workspace.Network]
 	if !ok {
 		return errors.New("unsupported network: " + string(workspace.Network))
@@ -251,4 +305,19 @@ func (ml *MultiListener) GetRPCURL(network models.Network) string {
 		return l.config.RpcUrl
 	}
 	return ""
+}
+
+func (ml *MultiListener) ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *solana.Signature)) error {
+	l, ok := ml.listeners[network]
+	if !ok {
+		return errors.New("unsupported network: " + string(network))
+	}
+	l.ListenPubKey(pubkey, callback)
+	return nil
+}
+
+func (ml *MultiListener) DisconnectPubKey(pubkey solana.PublicKey) {
+	for _, l := range ml.listeners {
+		l.DisconnectPubKey(pubkey)
+	}
 }

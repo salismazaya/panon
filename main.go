@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -37,18 +38,6 @@ func main() {
 	app := fiber.New()
 	app.Use(cors.New())
 
-	// Initialize handlers and auth
-	authHandlers := handlers.NewAuthHandlers()
-	h := handlers.New("", func() string { return "" }, authHandlers.TokenService)
-
-	// Initialize auth middleware with token validation from authHandlers
-	auth := middleware.NewAuth(authHandlers.ValidateToken)
-	h.Auth = auth
-
-	h.RegisterRoutes(app, authHandlers)
-
-	fmt.Println("Panon API Server is live at http://localhost:3333")
-
 	// Create Solana listeners for both Mainnet and Devnet
 	mainnetCfg := listener.Config{
 		RpcUrl: "https://api.mainnet-beta.solana.com",
@@ -63,16 +52,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create Solana listener: %v", err)
 	}
-	h.SolListener = solListener
+
+	// Initialize handlers and auth
+	authHandlers := handlers.NewAuthHandlers()
+	h := handlers.New("", func() string { return "" }, authHandlers.TokenService, solListener)
+
+	// Initialize auth middleware with token validation from authHandlers
+	auth := middleware.NewAuth(authHandlers.ValidateToken)
+	h.Auth = auth
+
+	h.RegisterRoutes(app, authHandlers)
+
+	fmt.Println("Panon API Server is live at http://localhost:3333")
 
 	// Register all existing workspaces to the listener
 	var workspaces []models.Workspace
 	db.Preload("Wallet").Find(&workspaces)
 	for _, ws := range workspaces {
-		err := solListener.RegisterWorkspace(ws, func(input models.ExecutorInput) {
+		err := solListener.RegisterWorkspace(ws, func(ctx context.Context, input models.ExecutorInput) {
 			workspace := input.Workspace
 			rpcURL := solListener.GetRPCURL(workspace.Network)
-			h.ExecuteLuaTrigger(input.SolAmountIn, input.Signer, rpcURL, workspace.Wallet.GetPrivateKey(), workspace.ID)
+			h.ExecuteLuaTrigger(ctx, input.SolAmountIn, input.Signer, rpcURL, workspace.Wallet.GetPrivateKey(), workspace.ID)
 		})
 		if err != nil {
 			log.Printf("Failed to register workspace %s: %v", ws.Name, err)

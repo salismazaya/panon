@@ -4,22 +4,36 @@ import { useFlow } from '../context/FlowContext';
 interface FieldProps {
   label: string;
   helper?: string;
+  error?: string;
   children: React.ReactNode;
 }
 
-export const FieldGroup = ({ label, helper, children }: FieldProps) => (
+export const FieldGroup = ({ label, helper, error, children }: FieldProps) => (
   <div className="space-y-2">
-    <label className="text-[12px] font-black text-black uppercase tracking-widest">{label}</label>
-    {children}
-    {helper && <p className="text-[10px] text-black font-bold uppercase opacity-60 leading-tight">{helper}</p>}
+    <div className="flex justify-between items-center group">
+      <label className="text-[12px] font-black text-black uppercase tracking-widest">{label}</label>
+      {error && <span className="text-[10px] font-black text-red-600 uppercase tracking-tighter animate-pulse">{error}</span>}
+    </div>
+    <div className={`transition-all ${error ? "ring-2 ring-red-600 shadow-[4px_4px_0px_0px_rgba(220,38,38,1)]" : ""}`}>
+      {children}
+    </div>
+    {helper && !error && <p className="text-[10px] text-black font-bold uppercase opacity-60 leading-tight">{helper}</p>}
   </div>
 );
 
-export const StandardInput = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
-  <input
-    {...props}
-    className={`w-full bg-white border-3 border-black px-4 py-3 text-sm font-black focus:outline-none focus:shadow-[4px_4px_0px_0px_#000] focus:translate-x-[-2px] focus:translate-y-[-2px] transition-all placeholder:text-black/30 text-black ${props.className || ''}`}
-  />
+interface StandardInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label?: string;
+  helper?: string;
+  error?: string;
+}
+
+export const StandardInput = ({ label = '', helper, error, className, ...props }: StandardInputProps) => (
+  <FieldGroup label={label} helper={helper} error={error}>
+    <input
+      {...props}
+      className={`w-full bg-white border-3 border-black px-4 py-3 text-sm font-black focus:outline-none focus:shadow-[4px_4px_0px_0px_#000] focus:translate-x-[-2px] focus:translate-y-[-2px] transition-all placeholder:text-black/30 text-black ${error ? 'border-red-600' : ''} ${className || ''}`}
+    />
+  </FieldGroup>
 );
 
 export const StandardSelect = (props: React.SelectHTMLAttributes<HTMLSelectElement>) => (
@@ -39,21 +53,24 @@ export const StandardSelect = (props: React.SelectHTMLAttributes<HTMLSelectEleme
 export const VariableAssignField = ({
   value,
   onChange,
+  error,
   label = "Assign to Variable",
   helper = "The received value will be stored in this variable name for later use."
 }: {
   value: string;
   onChange: (val: string) => void;
+  error?: string;
   label?: string;
   helper?: string;
 }) => (
-  <FieldGroup label={label} helper={helper}>
+  <FieldGroup label={label} helper={helper} error={error}>
     <div className="relative">
       <StandardInput
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="e.g. income_amount"
+        placeholder="Enter value"
         className="font-black pl-10"
+        error={error} // Actually StandardInput already wraps with FieldGroup, but we pass error for styling
       />
       <div className="absolute left-4 top-1/2 -translate-y-1/2 text-black font-black text-lg">$</div>
     </div>
@@ -62,20 +79,23 @@ export const VariableAssignField = ({
 
 export const ConditionBuilder = ({
   data,
-  onChange
+  onChange,
+  errors
 }: {
   data: { variable?: string; operator?: string; comparisonData?: any };
   onChange: (newData: any) => void;
+  errors?: Record<string, string> | null;
 }) => {
   const { getAvailableVariables } = useFlow();
   const vars = getAvailableVariables();
 
   return (
-    <FieldGroup label="Logic Condition" helper="Choose a variable to compare against a value.">
+    <FieldGroup label="Logic Condition" helper="Choose a variable to compare against a value." error={errors?.variable || errors?.operator || errors?.comparisonData}>
       <div className="flex flex-col gap-4">
         <StandardSelect
           value={data.variable || ''}
           onChange={(e) => onChange({ ...data, variable: e.target.value })}
+          className={errors?.variable ? 'border-red-600' : ''}
         >
           <option value="" disabled>Select Variable...</option>
           {vars.map(v => (
@@ -87,7 +107,7 @@ export const ConditionBuilder = ({
           <StandardSelect
             value={data.operator || '>'}
             onChange={(e) => onChange({ ...data, operator: e.target.value })}
-            className="w-[80px]"
+            className={`w-[80px] ${errors?.operator ? 'border-red-600' : ''}`}
           >
             <option value=">">&gt;</option>
             <option value="<">&lt;</option>
@@ -100,6 +120,7 @@ export const ConditionBuilder = ({
               label="" // Hide label for compact view
               data={data.comparisonData || { mode: 'static', value: '' }}
               onChange={(val) => onChange({ ...data, comparisonData: val })}
+              error={errors?.comparisonData}
             />
           </div>
         </div>
@@ -117,18 +138,20 @@ const getAutoParsedType = (val: string) => {
 export const VariableOrValueSelect = ({
   data,
   onChange,
-  label
+  label,
+  error
 }: {
   data: { mode?: 'static' | 'variable'; value?: string };
   onChange: (newData: any) => void;
   label: string;
+  error?: string;
 }) => {
   const { getAvailableVariables } = useFlow();
   const vars = getAvailableVariables();
   const mode = data.mode || 'static';
 
   return (
-    <FieldGroup label={label} helper={`Choose between a fixed value or a dynamic variable.`}>
+    <FieldGroup label={label} helper={`Choose between a fixed value or a dynamic variable.`} error={error}>
       <div className="flex flex-col gap-4">
         <div className="flex border-3 border-black p-1 bg-white">
           <button
@@ -141,7 +164,7 @@ export const VariableOrValueSelect = ({
           <button
             type="button"
             onClick={() => onChange({ ...data, mode: 'variable' })}
-            className={`grow py-2 px-3 text-[10px] font-black uppercase tracking-widest transition-all ${mode === 'variable' ? 'bg-black text-white' : 'text-black hover:bg-black/5'}`}
+            className={`growlabel="t" py-2 px-3 text-[10px] font-black uppercase tracking-widest transition-all ${mode === 'variable' ? 'bg-black text-white' : 'text-black hover:bg-black/5'}`}
           >
             Variable Ref
           </button>

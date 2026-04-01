@@ -23,28 +23,28 @@ describe('nodeRegistry – validation', () => {
 
     it('rejects when assignedVariable is empty', () => {
       const node = makeNode({ id: 'n1', type: 'OnSolReceived', data: { assignedVariable: '', assignedSender: 'sender' } })
-      expect(validate(node, [node])).toBe(false)
+      expect(validate(node, [node])).not.toBeNull()
     })
 
     it('rejects when assignedSender is empty', () => {
       const node = makeNode({ id: 'n1', type: 'OnSolReceived', data: { assignedVariable: 'amount', assignedSender: '' } })
-      expect(validate(node, [node])).toBe(false)
+      expect(validate(node, [node])).not.toBeNull()
     })
 
     it('rejects when variable and sender are the same', () => {
       const node = makeNode({ id: 'n1', type: 'OnSolReceived', data: { assignedVariable: 'x', assignedSender: 'x' } })
-      expect(validate(node, [node])).toBe(false)
+      expect(validate(node, [node])).not.toBeNull()
     })
 
     it('rejects duplicate variable names across nodes', () => {
       const node1 = makeNode({ id: 'n1', type: 'OnSolReceived', data: { assignedVariable: 'amount', assignedSender: 'sender' } })
       const node2 = makeNode({ id: 'n2', type: 'OnSolReceived', data: { assignedVariable: 'amount', assignedSender: 'src2' } })
-      expect(validate(node2, [node1, node2])).toBe(false)
+      expect(validate(node2, [node1, node2])).not.toBeNull()
     })
 
     it('accepts valid unique variable names', () => {
       const node = makeNode({ id: 'n1', type: 'OnSolReceived', data: { assignedVariable: 'amount', assignedSender: 'sender' } })
-      expect(validate(node, [node])).toBe(true)
+      expect(validate(node, [node])).toBeNull()
     })
   })
 
@@ -55,7 +55,7 @@ describe('nodeRegistry – validation', () => {
 
     it('accepts valid inputs', () => {
       const node = makeNode({ id: 'n1', type: 'OnUSDCReceived', data: { assignedVariable: 'usdcAmt', assignedSender: 'from' } })
-      expect(validate(node, [node])).toBe(true)
+      expect(validate(node, [node])).toBeNull()
     })
   })
 
@@ -66,27 +66,27 @@ describe('nodeRegistry – validation', () => {
 
     it('rejects when variable is missing', () => {
       const node = makeNode({ id: 'n1', type: 'If', data: { variable: '', operator: '>', comparisonData: { mode: 'value', value: '10' } } })
-      expect(validate(node, [])).toBe(false)
+      expect(validate(node, [])).not.toBeNull()
     })
 
     it('rejects when comparison value is empty', () => {
       const node = makeNode({ id: 'n1', type: 'If', data: { variable: 'x', operator: '>', comparisonData: { mode: 'value', value: '' } } })
-      expect(validate(node, [])).toBe(false)
+      expect(validate(node, [])).not.toBeNull()
     })
 
     it('defaults operator to > when not set', () => {
       const node = makeNode({ id: 'n1', type: 'If', data: { variable: 'x', comparisonData: { mode: 'value', value: '5' } } })
-      expect(validate(node, [])).toBe(true)
+      expect(validate(node, [])).toBeNull()
     })
 
     it('accepts variable-mode comparison', () => {
       const node = makeNode({ id: 'n1', type: 'If', data: { variable: 'x', operator: '==', comparisonData: { mode: 'variable', value: 'y' } } })
-      expect(validate(node, [])).toBe(true)
+      expect(validate(node, [])).toBeNull()
     })
 
     it('rejects variable-mode with empty value', () => {
       const node = makeNode({ id: 'n1', type: 'If', data: { variable: 'x', operator: '==', comparisonData: { mode: 'variable', value: '' } } })
-      expect(validate(node, [])).toBe(false)
+      expect(validate(node, [])).not.toBeNull()
     })
   })
 
@@ -97,17 +97,17 @@ describe('nodeRegistry – validation', () => {
 
     it('rejects when iterations is missing', () => {
       const node = makeNode({ id: 'n1', type: 'Loop', data: {} })
-      expect(validate(node, [])).toBe(false)
+      expect(validate(node, [])).not.toBeNull()
     })
 
     it('accepts zero iterations', () => {
       const node = makeNode({ id: 'n1', type: 'Loop', data: { iterations: '0' } })
-      expect(validate(node, [])).toBe(true)
+      expect(validate(node, [])).toBeNull()
     })
 
     it('accepts positive iterations', () => {
       const node = makeNode({ id: 'n1', type: 'Loop', data: { iterations: '10' } })
-      expect(validate(node, [])).toBe(true)
+      expect(validate(node, [])).toBeNull()
     })
   })
 
@@ -118,7 +118,7 @@ describe('nodeRegistry – validation', () => {
 
     it('rejects when recipientData is missing', () => {
       const node = makeNode({ id: 'n1', type: 'Transfer', data: { amountData: { mode: 'value', value: '100' } } })
-      expect(validate(node, [])).toBe(false)
+      expect(validate(node, [])).not.toBeNull()
     })
 
     it('rejects when amount is empty', () => {
@@ -126,7 +126,7 @@ describe('nodeRegistry – validation', () => {
         recipientData: { mode: 'value', value: '0xABC' },
         amountData: { mode: 'value', value: '' },
       } })
-      expect(validate(node, [])).toBe(false)
+      expect(validate(node, [])).not.toBeNull()
     })
 
     it('accepts valid value-mode recipient and amount', () => {
@@ -134,7 +134,7 @@ describe('nodeRegistry – validation', () => {
         recipientData: { mode: 'value', value: '0xABC' },
         amountData: { mode: 'value', value: '50' },
       } })
-      expect(validate(node, [])).toBe(true)
+      expect(validate(node, [])).toBeNull()
     })
 
     it('accepts variable-mode fields', () => {
@@ -142,7 +142,7 @@ describe('nodeRegistry – validation', () => {
         recipientData: { mode: 'variable', value: 'sender' },
         amountData: { mode: 'variable', value: 'amount' },
       } })
-      expect(validate(node, [])).toBe(true)
+      expect(validate(node, [])).toBeNull()
     })
   })
 
@@ -153,12 +153,12 @@ describe('nodeRegistry – validation', () => {
 
     it('rejects when balanceAmount is empty', () => {
       const node = makeNode({ id: 'n1', type: 'GetSolBalance', data: { balanceAmount: '' } })
-      expect(validate(node, [])).toBe(false)
+      expect(validate(node, [])).not.toBeNull()
     })
 
     it('accepts when balanceAmount is provided', () => {
       const node = makeNode({ id: 'n1', type: 'GetSolBalance', data: { balanceAmount: 'bal' } })
-      expect(validate(node, [])).toBe(true)
+      expect(validate(node, [])).toBeNull()
     })
   })
 
@@ -173,7 +173,7 @@ describe('nodeRegistry – validation', () => {
         op2Data: { mode: 'value', value: '2' },
         assignedVariable: '',
       } })
-      expect(validate(node, [])).toBe(false)
+      expect(validate(node, [])).not.toBeNull()
     })
 
     it('rejects when operand1 is empty', () => {
@@ -182,7 +182,7 @@ describe('nodeRegistry – validation', () => {
         op2Data: { mode: 'value', value: '2' },
         assignedVariable: 'result',
       } })
-      expect(validate(node, [])).toBe(false)
+      expect(validate(node, [])).not.toBeNull()
     })
 
     it('accepts valid compute with default operator', () => {
@@ -191,7 +191,7 @@ describe('nodeRegistry – validation', () => {
         op2Data: { mode: 'value', value: '5' },
         assignedVariable: 'sum',
       } })
-      expect(validate(node, [])).toBe(true)
+      expect(validate(node, [])).toBeNull()
     })
 
     it('accepts variable-mode operands', () => {
@@ -201,7 +201,7 @@ describe('nodeRegistry – validation', () => {
         operator: '-',
         assignedVariable: 'diff',
       } })
-      expect(validate(node, [])).toBe(true)
+      expect(validate(node, [])).toBeNull()
     })
   })
 })

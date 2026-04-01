@@ -1,18 +1,25 @@
 import { BaseNode } from "./BaseNode";
-import { VariableAssignField } from "../components/Fields";
+import { StandardInput, VariableAssignField } from "../components/Fields";
 import { useFlow } from "../context/FlowContext";
 import { Position } from "@xyflow/react";
 
-const SolanaIcon = () => (
-    <svg className="w-5 h-5 text-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+const TokenIcon = () => (
+    <svg className="w-5 h-5 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
-        <polyline points="8 12 12 16 16 12" />
-        <line x1="12" y1="8" x2="12" y2="16" />
+        <circle cx="12" cy="12" r="4" />
     </svg>
 );
 
-const SolanaSetupFields = ({ data, onFieldChange, errors }: any) => (
+const TokenSetupFields = ({ data, onFieldChange, errors }: any) => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <StandardInput
+            label="Token Address Variable"
+            helper="The token address will be filter"
+            value={data.tokenAddressVar || ''}
+            onChange={(val) => onFieldChange("tokenAddressVar", val.target.value)}
+            error={errors?.tokenAddressVar}
+        />
+
         <VariableAssignField
             label="Amount Variable"
             value={data.assignedVariable || ''}
@@ -32,7 +39,7 @@ const SolanaSetupFields = ({ data, onFieldChange, errors }: any) => (
     </div>
 );
 
-export function OnSolReceivedNode({ id, data, type }: any) {
+export function OnTokenReceivedNode({ id, data, type }: any) {
     const { renameVariable } = useFlow();
 
     return (
@@ -40,13 +47,13 @@ export function OnSolReceivedNode({ id, data, type }: any) {
             id={id}
             data={data}
             type={type}
-            title="Solana Received"
+            title="Token Received"
             subtitle="Trigger"
-            colorScheme="blue"
-            icon={<SolanaIcon />}
-            modalTitle="Solana Monitor Setup"
+            colorScheme="emerald"
+            icon={<TokenIcon />}
+            modalTitle="Token Monitor Setup"
             modalBody={(draft, update, errors) => (
-                <SolanaSetupFields
+                <TokenSetupFields
                     data={draft}
                     errors={errors}
                     onFieldChange={(field: string, val: string) => {
@@ -69,16 +76,16 @@ export function OnSolReceivedNode({ id, data, type }: any) {
     );
 }
 
-export function OnSolReceived(props: any) {
+export function OnTokenReceived(props: any) {
     return (
         <BaseNode
             id=""
             data={{}}
             {...props}
-            title="Solana Received"
+            title="Token Received"
             subtitle="Trigger"
-            colorScheme="blue"
-            icon={<SolanaIcon />}
+            colorScheme="emerald"
+            icon={<TokenIcon />}
             isSidebar={true}
         />
     );

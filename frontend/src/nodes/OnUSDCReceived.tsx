@@ -10,12 +10,13 @@ const USDCIcon = () => (
     </svg>
 );
 
-const USDCSetupFields = ({ data, onFieldChange }: any) => (
+const USDCSetupFields = ({ data, onFieldChange, errors }: any) => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <VariableAssignField 
             label="Amount Variable"
             value={data.assignedVariable || ''} 
             onChange={(val) => onFieldChange('assignedVariable', val)}
+            error={errors?.assignedVariable}
             helper="The received amount will be stored in this variable (e.g. 'amount')."
         />
 
@@ -23,6 +24,7 @@ const USDCSetupFields = ({ data, onFieldChange }: any) => (
             label="Sender Variable"
             value={data.assignedSender || ''} 
             onChange={(val) => onFieldChange('assignedSender', val)}
+            error={errors?.assignedSender}
             helper="The sender address will be stored in this variable (e.g. 'sender')."
         />
     </div>
@@ -41,9 +43,10 @@ export function OnUSDCReceivedNode({ id, data, type }: any) {
             colorScheme="indigo"
             icon={<USDCIcon />}
             modalTitle="USDC Monitor Setup"
-            modalBody={(draft, update) => (
+            modalBody={(draft, update, errors) => (
                 <USDCSetupFields 
                     data={draft} 
+                    errors={errors}
                     onFieldChange={(field: string, val: string) => {
                         const currentDraftVal = draft[field];
                         if (currentDraftVal && currentDraftVal !== val) {

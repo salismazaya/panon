@@ -8,6 +8,7 @@ import { OnSolReceivedNode } from "../nodes/OnSolReceived";
 import { ArithmeticNode } from '../nodes/ComputeNodes';
 import { useEffect } from "react";
 import { GetSolBalanceNode } from "../nodes/GetSolBalance";
+import { OnTokenReceivedNode } from "../nodes/OnTokenReceived";
 
 const nodeTypes = {
     OnUSDCReceived: OnUSDCReceivedNode,
@@ -16,7 +17,8 @@ const nodeTypes = {
     Transfer: TransferNode,
     Compute: ArithmeticNode,
     OnSolReceived: OnSolReceivedNode,
-    GetSolBalance: GetSolBalanceNode
+    GetSolBalance: GetSolBalanceNode,
+    OnTokenReceived: OnTokenReceivedNode
 };
 
 export default function Playground() {

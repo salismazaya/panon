@@ -34,8 +34,8 @@ export function IfNode({ id, data, type }: any) {
             colorScheme="orange"
             icon={<IfIcon />}
             modalTitle="Setup Logical Branch"
-            modalBody={(draft, update) => (
-                <ConditionBuilder data={draft} onChange={update} />
+            modalBody={(draft, update, errors) => (
+                <ConditionBuilder data={draft} onChange={update} errors={errors} />
             )}
             customHandles={customHandles}
         />
@@ -59,12 +59,17 @@ export function LoopNode({ id, data, type }: any) {
             colorScheme="emerald"
             icon={<LoopIcon />}
             modalTitle="Setup Loop"
-            modalBody={(draft, update) => (
-                <FieldGroup label="Iterations" helper="How many times to repeat the body branch.">
+            modalBody={(draft, update, errors) => (
+                <FieldGroup 
+                    label="Iterations" 
+                    helper="How many times to repeat the body branch."
+                    error={errors?.iterations}
+                >
                     <StandardInput 
                         type="number"
                         value={draft.iterations || 5}
                         onChange={(e) => update({ iterations: e.target.value })}
+                        error={errors?.iterations}
                     />
                 </FieldGroup>
             )}

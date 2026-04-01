@@ -21,15 +21,16 @@ export function ArithmeticNode({ id, data, type }: any) {
             colorScheme="purple"
             icon={<ComputeIcon />}
             modalTitle="Setup Computation"
-            modalBody={(draft, update) => (
+            modalBody={(draft, update, errors) => (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    <FieldGroup label="Operation" helper="Result = Value 1 [Operator] Value 2">
+                    <FieldGroup label="Operation" helper="Result = Value 1 [Operator] Value 2" error={errors?.op1Data || errors?.op2Data || errors?.operator}>
                         <div className="flex items-center gap-3">
                             <div className="flex-1 min-w-0">
                                 <VariableOrValueSelect
                                     label="Value 1"
                                     data={draft.op1Data || { mode: 'variable', value: '' }}
                                     onChange={(val) => update({ op1Data: val })}
+                                    error={errors?.op1Data}
                                 />
                             </div>
                             <div className="w-20 pt-1">
@@ -49,6 +50,7 @@ export function ArithmeticNode({ id, data, type }: any) {
                                     label="Value 2"
                                     data={draft.op2Data || { mode: 'variable', value: '' }}
                                     onChange={(val) => update({ op2Data: val })}
+                                    error={errors?.op2Data}
                                 />
                             </div>
                         </div>
@@ -58,6 +60,7 @@ export function ArithmeticNode({ id, data, type }: any) {
                         label="Store Result To"
                         value={draft.assignedVariable || ''}
                         onChange={(val) => update({ assignedVariable: val })}
+                        error={errors?.assignedVariable}
                         helper="Name of the new variable to store the result (e.g. 'net_amount')."
                     />
                 </div>

@@ -26,6 +26,7 @@ interface FlowContextType {
   addNode: (type: string, data: any) => void;
   updateNodeData: (id: string, data: any) => void;
   getAvailableVariables: () => string[];
+  getNodeErrors: (node: Node) => Record<string, string> | null;
   isNodeValid: (node: Node) => boolean;
   isFlowValid: () => boolean;
   isVariableNameUnique: (nodeId: string, name: string) => boolean;
@@ -97,11 +98,15 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
     return Array.from(vars);
   }, [nodes]);
 
-  const isNodeValid = useCallback((node: Node) => {
+  const getNodeErrors = useCallback((node: Node) => {
     const nodeDef = nodeRegistry[node.type || ''];
-    if (!nodeDef) return true;
+    if (!nodeDef) return null;
     return nodeDef.validate(node, nodes);
   }, [nodes]);
+
+  const isNodeValid = useCallback((node: Node) => {
+    return getNodeErrors(node) === null;
+  }, [getNodeErrors]);
 
   const isFlowValid = useCallback(() => {
     return nodes.length > 0 && nodes.every(node => isNodeValid(node));
@@ -232,6 +237,7 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
         addNode,
         updateNodeData,
         getAvailableVariables,
+        getNodeErrors,
         isNodeValid,
         isFlowValid,
         isVariableNameUnique,

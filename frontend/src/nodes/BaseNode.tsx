@@ -16,7 +16,7 @@ export interface BaseNodeProps {
     subtitle: string;
     colorScheme?: 'indigo' | 'blue' | 'orange' | 'emerald' | 'rose' | 'purple';
     modalTitle?: string;
-    modalBody?: (data: any, updateData: (newData: any) => void) => React.ReactNode;
+    modalBody?: (data: any, updateData: (newData: any) => void, errors: Record<string, string> | null) => React.ReactNode;
     onClick?: () => void;
     children?: React.ReactNode;
     isSidebar?: boolean;
@@ -89,12 +89,13 @@ export function BaseNode({
     type,
     customHandles
 }: BaseNodeProps) {
-    const { updateNodeData, isNodeValid } = useFlow();
+    const { updateNodeData, isNodeValid, getNodeErrors } = useFlow();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [draftData, setDraftData] = useState(data);
     const theme = colorMap[colorScheme];
 
     const isValid = type ? isNodeValid({ id, data, type } as any) : true;
+    const draftErrors = type ? getNodeErrors({ id, data: draftData, type } as any) : null;
 
     // Ensure draftData stays in sync when modal opens
     const handleOpenModal = () => {
@@ -212,7 +213,11 @@ export function BaseNode({
 
                         {/* Body */}
                         <div className="p-8 space-y-6 grow overflow-y-auto text-black font-medium">
-                            {modalBody && modalBody(draftData, (newData) => setDraftData({ ...draftData, ...newData }))}
+                            {modalBody && modalBody(
+                                draftData, 
+                                (newData) => setDraftData((prev: any) => ({ ...prev, ...newData })),
+                                draftErrors
+                            )}
                         </div>
 
                         {/* Footer */}
