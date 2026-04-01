@@ -2,7 +2,10 @@ package panon
 
 import (
 	"context"
+	"log"
 	"math"
+	"strings"
+	"time"
 
 	"github.com/gagliardetto/solana-go"
 	associatedtokenaccount "github.com/gagliardetto/solana-go/programs/associated-token-account"
@@ -137,17 +140,23 @@ func (c *Client) transferSol(L *lua.LState) int {
 		return 0
 	}
 
-	signature, err := client.SendTransaction(
-		context.Background(),
-		tx,
-	)
+	var sig solana.Signature
+	for i := 0; i < 3; i++ {
+		sig, err = client.SendTransaction(context.Background(), tx)
+		if err == nil {
+			break
+		}
 
-	if err != nil {
-		L.RaiseError("%s", "failed to send transaction: "+err.Error())
+		if strings.Contains(err.Error(), "insufficient funds") {
+			log.Printf("⚠️ Insufficient funds detected for SOL transfer (Attempt %d/3), retrying in 2s...", i+1)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		L.RaiseError("failed to send transaction: %v", err)
 		return 0
 	}
 
-	L.Push(lua.LString(signature.String()))
+	L.Push(lua.LString(sig.String()))
 	return 1
 }
 
@@ -303,8 +312,9 @@ func (c *Client) transfer(L *lua.LState) int {
 	}
 	mintDecimals := mintData[44]
 
-	// Use decimals to calculate the actual amount in lamports
-	transferAmount := uint64(float64(transferAmountRaw) * math.Pow10(int(mintDecimals)))
+	// Use decimals to calculate the actual amount in lamports with rounding
+	transferAmount := uint64(math.Round(float64(transferAmountRaw) * math.Pow10(int(mintDecimals))))
+	log.Printf("🚀 Preparing Token Transfer: %.6f (%d units) to %s", transferAmountRaw, transferAmount, toAddress)
 
 	legacyInst, err := token.NewTransferCheckedInstruction(
 		transferAmount,
@@ -360,17 +370,29 @@ func (c *Client) transfer(L *lua.LState) int {
 		return 0
 	}
 
-	signature, err := client.SendTransaction(
-		context.Background(),
-		tx,
-	)
+	var sig solana.Signature
+	for i := 0; i < 3; i++ {
+		sig, err = client.SendTransaction(context.Background(), tx)
+		if err == nil {
+			break
+		}
 
-	if err != nil {
+		if strings.Contains(err.Error(), "insufficient funds") || strings.Contains(err.Error(), "0x1") {
+			log.Printf("⚠️ Insufficient funds detected for %s transfer (Attempt %d/3), retrying in 2s...", tokenMint, i+1)
+			time.Sleep(2 * time.Second)
+			// Re-fetch blockhash if it's potentially stale (minor optimization)
+			if i < 2 {
+				if latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized); errHash == nil {
+					tx.Message.RecentBlockhash = latestBlockhash.Value.Blockhash
+				}
+			}
+			continue
+		}
 		L.RaiseError("failed to send transaction: %v", err)
 		return 0
 	}
 
-	L.Push(lua.LString(signature.String()))
+	L.Push(lua.LString(sig.String()))
 	return 1
 }
 
@@ -490,8 +512,9 @@ func (c *Client) transferToken(L *lua.LState) int {
 	}
 	mintDecimals := mintData[44]
 
-	// Use decimals to calculate the actual amount in lamports
-	transferAmount := uint64(float64(transferAmountRaw) * math.Pow10(int(mintDecimals)))
+	// Use decimals to calculate the actual amount in lamports with rounding
+	transferAmount := uint64(math.Round(float64(transferAmountRaw) * math.Pow10(int(mintDecimals))))
+	log.Printf("🚀 [transferToken] Preparing Token Transfer: %.6f (%d units) to %s", transferAmountRaw, transferAmount, toAddress)
 
 	legacyInst, err := token.NewTransferCheckedInstruction(
 		transferAmount,
@@ -547,17 +570,28 @@ func (c *Client) transferToken(L *lua.LState) int {
 		return 0
 	}
 
-	signature, err := client.SendTransaction(
-		context.Background(),
-		tx,
-	)
+	var sig solana.Signature
+	for i := 0; i < 3; i++ {
+		sig, err = client.SendTransaction(context.Background(), tx)
+		if err == nil {
+			break
+		}
 
-	if err != nil {
-		L.RaiseError("%s", "failed to send transaction: "+err.Error())
+		if strings.Contains(err.Error(), "insufficient funds") || strings.Contains(err.Error(), "0x1") {
+			log.Printf("⚠️ [transferToken] Insufficient funds detected for %s (Attempt %d/3), retrying in 2s...", tokenMint, i+1)
+			time.Sleep(2 * time.Second)
+			if i < 2 {
+				if latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized); errHash == nil {
+					tx.Message.RecentBlockhash = latestBlockhash.Value.Blockhash
+				}
+			}
+			continue
+		}
+		L.RaiseError("failed to send transaction: %v", err)
 		return 0
 	}
 
-	L.Push(lua.LString(signature.String()))
+	L.Push(lua.LString(sig.String()))
 	return 1
 }
 
