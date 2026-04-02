@@ -35,7 +35,7 @@ export function IfNode({ id, data, type }: any) {
             icon={<IfIcon />}
             modalTitle="Setup Logical Branch"
             modalBody={(draft, update, errors) => (
-                <ConditionBuilder data={draft} onChange={update} errors={errors} />
+                <ConditionBuilder data={draft} onChange={update} errors={errors} nodeId={id} />
             )}
             customHandles={customHandles}
         />

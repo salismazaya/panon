@@ -20,6 +20,14 @@ const isUnique = (nodeId: string, name: string, nodes: Node[]) => {
     );
 };
 
+const isValidVariableName = (name: string): string | null => {
+    if (!name || name.trim() === '') return "Variable name is required";
+    if (/\s/.test(name)) return "Variable cannot contain spaces";
+    if (/^\d/.test(name)) return "Variable cannot start with a number";
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) return "Variable can only contain letters, numbers, and underscores";
+    return null;
+};
+
 // Base58 alphabet used in Solana addresses (no 0, O, I, L)
 const BASE58_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
@@ -63,12 +71,16 @@ export const nodeRegistry: Record<string, NodeDef> = {
             const amountVar = data.assignedVariable?.trim();
             const senderVar = data.assignedSender?.trim();
 
-            if (!amountVar) errors.assignedVariable = "Amount variable name is required";
-            if (!senderVar) errors.assignedSender = "Sender variable name is required";
+            const amountError = isValidVariableName(amountVar);
+            if (amountError) errors.assignedVariable = amountError;
 
-            if (amountVar && !isUnique(node.id, amountVar, nodes)) errors.assignedVariable = "Variable name must be unique";
-            if (senderVar && !isUnique(node.id, senderVar, nodes)) errors.assignedSender = "Variable name must be unique";
-            if (amountVar && senderVar && amountVar === senderVar) {
+            const senderError = isValidVariableName(senderVar);
+            if (senderError) errors.assignedSender = senderError;
+
+            if (!errors.assignedVariable && amountVar && !isUnique(node.id, amountVar, nodes)) errors.assignedVariable = "Variable name must be unique";
+            if (!errors.assignedSender && senderVar && !isUnique(node.id, senderVar, nodes)) errors.assignedSender = "Variable name must be unique";
+
+            if (!errors.assignedVariable && !errors.assignedSender && amountVar && senderVar && amountVar === senderVar) {
                 errors.assignedVariable = "Variables must be different";
                 errors.assignedSender = "Variables must be different";
             }
@@ -95,13 +107,18 @@ export const nodeRegistry: Record<string, NodeDef> = {
             const senderVar = data.assignedSender?.trim();
             const tokenAddressVar = data.tokenAddressVar?.trim();
 
-            if (!amountVar) errors.assignedVariable = "Amount variable name is required";
-            if (!senderVar) errors.assignedSender = "Sender variable name is required";
+            const amountError = isValidVariableName(amountVar);
+            if (amountError) errors.assignedVariable = amountError;
+
+            const senderError = isValidVariableName(senderVar);
+            if (senderError) errors.assignedSender = senderError;
+
             if (!tokenAddressVar) errors.tokenAddressVar = "Token address is required";
 
-            if (amountVar && !isUnique(node.id, amountVar, nodes)) errors.assignedVariable = "Variable name must be unique";
-            if (senderVar && !isUnique(node.id, senderVar, nodes)) errors.assignedSender = "Variable name must be unique";
-            if (amountVar && senderVar && amountVar === senderVar) {
+            if (!errors.assignedVariable && amountVar && !isUnique(node.id, amountVar, nodes)) errors.assignedVariable = "Variable name must be unique";
+            if (!errors.assignedSender && senderVar && !isUnique(node.id, senderVar, nodes)) errors.assignedSender = "Variable name must be unique";
+
+            if (!errors.assignedVariable && !errors.assignedSender && amountVar && senderVar && amountVar === senderVar) {
                 errors.assignedVariable = "Variables must be different";
                 errors.assignedSender = "Variables must be different";
             }
@@ -134,13 +151,16 @@ export const nodeRegistry: Record<string, NodeDef> = {
             const v1 = data.assignedVariable?.trim();
             const v2 = data.assignedSender?.trim();
 
-            if (!v1) errors.assignedVariable = "Amount variable name is required";
-            if (!v2) errors.assignedSender = "Sender variable name is required";
+            const v1Error = isValidVariableName(v1);
+            if (v1Error) errors.assignedVariable = v1Error;
 
-            if (v1 && !isUnique(node.id, v1, nodes)) errors.assignedVariable = "Variable name must be unique";
-            if (v2 && !isUnique(node.id, v2, nodes)) errors.assignedSender = "Variable name must be unique";
+            const v2Error = isValidVariableName(v2);
+            if (v2Error) errors.assignedSender = v2Error;
 
-            if (v1 && v2 && v1 === v2) {
+            if (!errors.assignedVariable && v1 && !isUnique(node.id, v1, nodes)) errors.assignedVariable = "Variable name must be unique";
+            if (!errors.assignedSender && v2 && !isUnique(node.id, v2, nodes)) errors.assignedSender = "Variable name must be unique";
+
+            if (!errors.assignedVariable && !errors.assignedSender && v1 && v2 && v1 === v2) {
                 errors.assignedVariable = "Variables must be different";
                 errors.assignedSender = "Variables must be different";
             }
@@ -297,7 +317,8 @@ export const nodeRegistry: Record<string, NodeDef> = {
             const errors: Record<string, string> = {};
             const data = node.data as any;
             const { balanceAmount } = data || {};
-            if (!balanceAmount?.trim()) errors.balanceAmount = "Storage variable name is required";
+            const bError = isValidVariableName(balanceAmount?.trim());
+            if (bError) errors.balanceAmount = bError;
             return Object.keys(errors).length > 0 ? errors : null;
         },
         generate: (node, { getNext, indent }) => {
@@ -326,7 +347,12 @@ export const nodeRegistry: Record<string, NodeDef> = {
                 errors.op2Data = "Second operand is required";
             }
 
-            if (!assignedVariable?.trim()) errors.assignedVariable = "Destination variable is required";
+            if (!assignedVariable?.trim()) {
+                errors.assignedVariable = "Destination variable is required";
+            } else {
+                const aError = isValidVariableName(assignedVariable.trim());
+                if (aError) errors.assignedVariable = aError;
+            }
 
             return Object.keys(errors).length > 0 ? errors : null;
         },

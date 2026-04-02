@@ -11,7 +11,7 @@ const SendIcon = () => (
 
 export function TransferNode({ id, data, type }: any) {
     const { getAvailableVariables } = useFlow();
-    const availableVars = getAvailableVariables();
+    const availableVars = getAvailableVariables(id);
 
     return (
         <BaseNode
@@ -39,6 +39,7 @@ export function TransferNode({ id, data, type }: any) {
                         data={draft.recipientData || { mode: 'static', value: '' }}
                         onChange={(val) => update({ recipientData: val })}
                         error={errors?.recipientData}
+                        nodeId={id}
                     />
 
                     <VariableOrValueSelect
@@ -48,6 +49,7 @@ export function TransferNode({ id, data, type }: any) {
                             : { mode: 'static', value: '0' })}
                         onChange={(val) => update({ amountData: val })}
                         error={errors?.amountData}
+                        nodeId={id}
                     />
                 </div>
             )}
@@ -72,7 +74,7 @@ export function Transfer(props: any) {
 
 export function TransferTokenNode({ id, data, type }: any) {
     const { getAvailableVariables } = useFlow();
-    const availableVars = getAvailableVariables();
+    const availableVars = getAvailableVariables(id);
 
     return (
         <BaseNode
@@ -101,6 +103,7 @@ export function TransferTokenNode({ id, data, type }: any) {
                         data={draft.recipientData || { mode: 'static', value: '' }}
                         onChange={(val) => update({ recipientData: val })}
                         error={errors?.recipientData}
+                        nodeId={id}
                     />
 
                     <VariableOrValueSelect
@@ -110,6 +113,7 @@ export function TransferTokenNode({ id, data, type }: any) {
                             : { mode: 'static', value: '0' })}
                         onChange={(val) => update({ amountData: val })}
                         error={errors?.amountData}
+                        nodeId={id}
                     />
                 </div>
             )}

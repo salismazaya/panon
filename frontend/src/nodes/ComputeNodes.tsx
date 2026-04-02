@@ -1,3 +1,4 @@
+import React from "react";
 import { BaseNode } from "./BaseNode";
 import { VariableOrValueSelect, StandardSelect, VariableAssignField, FieldGroup } from "../components/Fields";
 
@@ -31,12 +32,13 @@ export function ArithmeticNode({ id, data, type }: any) {
                                     data={draft.op1Data || { mode: 'variable', value: '' }}
                                     onChange={(val) => update({ op1Data: val })}
                                     error={errors?.op1Data}
+                                    nodeId={id}
                                 />
                             </div>
                             <div className="w-20 pt-1">
                                 <StandardSelect
                                     value={draft.operator || '+'}
-                                    onChange={(e) => update({ operator: e.target.value })}
+                                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => update({ operator: e.target.value })}
                                 >
                                     <option value="+">+</option>
                                     <option value="-">-</option>
@@ -51,6 +53,7 @@ export function ArithmeticNode({ id, data, type }: any) {
                                     data={draft.op2Data || { mode: 'variable', value: '' }}
                                     onChange={(val) => update({ op2Data: val })}
                                     error={errors?.op2Data}
+                                    nodeId={id}
                                 />
                             </div>
                         </div>

@@ -25,7 +25,7 @@ interface FlowContextType {
   onConnect: OnConnect;
   addNode: (type: string, data: any) => void;
   updateNodeData: (id: string, data: any) => void;
-  getAvailableVariables: () => string[];
+  getAvailableVariables: (nodeId?: string) => string[];
   getNodeErrors: (node: Node) => Record<string, string> | null;
   isNodeValid: (node: Node) => boolean;
   isFlowValid: () => boolean;
@@ -86,17 +86,43 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
     );
   }, []);
 
-  const getAvailableVariables = useCallback(() => {
+  const getAvailableVariables = useCallback((nodeId?: string) => {
     const vars = new Set<string>();
 
+    // Helper to find all predecessor nodes
+    const getPredecessors = (id: string): Set<string> => {
+      const preds = new Set<string>();
+      const visited = new Set<string>();
+      const stack = [id];
+
+      while (stack.length > 0) {
+        const current = stack.pop()!;
+        if (visited.has(current)) continue;
+        visited.add(current);
+
+        edges.forEach(edge => {
+          if (edge.target === current) {
+            preds.add(edge.source);
+            stack.push(edge.source);
+          }
+        });
+      }
+      return preds;
+    };
+
+    const allowedNodes = nodeId ? getPredecessors(nodeId) : null;
+
     nodes.forEach(n => {
+      // If nodeId provided, only include variables from nodes that can reach it
+      if (allowedNodes && !allowedNodes.has(n.id)) return;
+
       if (typeof n.data?.assignedVariable === 'string' && n.data.assignedVariable.trim()) vars.add(n.data.assignedVariable.trim());
       if (typeof n.data?.assignedSender === 'string' && n.data.assignedSender.trim()) vars.add(n.data.assignedSender.trim());
       if (typeof n.data?.balanceAmount === 'string' && n.data.balanceAmount.trim()) vars.add(n.data.balanceAmount.trim());
     });
 
     return Array.from(vars);
-  }, [nodes]);
+  }, [nodes, edges]);
 
   const getNodeErrors = useCallback((node: Node) => {
     const nodeDef = nodeRegistry[node.type || ''];

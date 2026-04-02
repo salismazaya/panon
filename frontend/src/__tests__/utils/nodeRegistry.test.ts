@@ -21,6 +21,16 @@ describe('nodeRegistry – validation', () => {
   describe('OnSolReceived.validate', () => {
     const validate = nodeRegistry.OnSolReceived.validate
 
+    it('rejects when assignedVariable has spaces', () => {
+      const node = makeNode({ id: 'n1', type: 'OnSolReceived', data: { assignedVariable: 'amount with space', assignedSender: 'sender' } })
+      expect(validate(node, [node])).not.toBeNull()
+    })
+
+    it('rejects when assignedVariable starts with a number', () => {
+      const node = makeNode({ id: 'n1', type: 'OnSolReceived', data: { assignedVariable: '1amount', assignedSender: 'sender' } })
+      expect(validate(node, [node])).not.toBeNull()
+    })
+
     it('rejects when assignedVariable is empty', () => {
       const node = makeNode({ id: 'n1', type: 'OnSolReceived', data: { assignedVariable: '', assignedSender: 'sender' } })
       expect(validate(node, [node])).not.toBeNull()
@@ -222,14 +232,23 @@ describe('nodeRegistry – generate', () => {
     expect(lua).toContain('function on_sol_received(a, s)')
   })
 
-  it('Transfer generates transfer() call', () => {
+  it('Transfer generates transferSol() call', () => {
     const node = makeNode({ id: 'n1', type: 'Transfer', data: {
       recipientData: { mode: 'value', value: '0xABC' },
       amountData: { mode: 'value', value: '100' },
-      token: 'SOL',
     } })
     const lua = nodeRegistry.Transfer.generate(node, dummyContext)
-    expect(lua).toBe('transfer("0xABC", "SOL", 100)')
+    expect(lua).toBe('transferSol("0xABC", 100)')
+  })
+
+  it('TransferToken generates transferToken() call', () => {
+    const node = makeNode({ id: 'n1', type: 'TransferToken', data: {
+      tokenAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+      recipientData: { mode: 'value', value: '0xABC' },
+      amountData: { mode: 'value', value: '100' },
+    } })
+    const lua = nodeRegistry.TransferToken.generate(node, dummyContext)
+    expect(lua).toBe('transferToken("0xABC", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", 100)')
   })
 
   it('GetSolBalance generates balance assignment', () => {
@@ -271,7 +290,6 @@ describe('nodeRegistry – generate', () => {
     const node = makeNode({ id: 'n1', type: 'Transfer', data: {
       recipientData: { mode: 'value', value: '0xA' },
       amountData: { mode: 'value', value: '1' },
-      token: 'SOL',
       functionWrapperName: 'retry',
     } })
     const lua = nodeRegistry.Transfer.generate(node, dummyContext)

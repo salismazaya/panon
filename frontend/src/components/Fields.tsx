@@ -21,33 +21,55 @@ export const FieldGroup = ({ label, helper, error, children }: FieldProps) => (
   </div>
 );
 
-interface StandardInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+export interface StandardInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   helper?: string;
   error?: string;
 }
 
-export const StandardInput = ({ label = '', helper, error, className, ...props }: StandardInputProps) => (
-  <FieldGroup label={label} helper={helper} error={error}>
+export interface StandardSelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
+  label?: string;
+  helper?: string;
+  error?: string;
+}
+
+export const RawInput = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement> & { error?: string }>(
+  ({ error, className, ...props }, ref) => (
     <input
       {...props}
+      ref={ref}
       className={`w-full bg-white border-3 border-black px-4 py-3 text-sm font-black focus:outline-none focus:shadow-[4px_4px_0px_0px_#000] focus:translate-x-[-2px] focus:translate-y-[-2px] transition-all placeholder:text-black/30 text-black ${error ? 'border-red-600' : ''} ${className || ''}`}
     />
+  )
+);
+
+export const RawSelect = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement> & { error?: string }>(
+  ({ error, className, ...props }, ref) => (
+    <div className="relative">
+      <select
+        {...props}
+        ref={ref}
+        className={`w-full bg-white border-3 border-black px-4 py-3 text-sm font-black focus:outline-none focus:shadow-[4px_4px_0px_0px_#000] focus:translate-x-[-2px] focus:translate-y-[-2px] transition-all text-black appearance-none cursor-pointer ${error ? 'border-red-600' : ''} ${className || ''}`}
+      />
+      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+        <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+    </div>
+  )
+);
+
+export const StandardInput = ({ label = '', helper, error, className, ...props }: StandardInputProps) => (
+  <FieldGroup label={label} helper={helper} error={error}>
+    <RawInput {...props} error={error} className={className} />
   </FieldGroup>
 );
 
-export const StandardSelect = (props: React.SelectHTMLAttributes<HTMLSelectElement>) => (
-  <div className="relative">
-    <select
-      {...props}
-      className={`w-full bg-white border-3 border-black px-4 py-3 text-sm font-black focus:outline-none focus:shadow-[4px_4px_0px_0px_#000] focus:translate-x-[-2px] focus:translate-y-[-2px] transition-all text-black appearance-none cursor-pointer ${props.className || ''}`}
-    />
-    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-      <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7" />
-      </svg>
-    </div>
-  </div>
+export const StandardSelect = ({ label = '', helper, error, className, ...props }: StandardSelectProps) => (
+  <FieldGroup label={label} helper={helper} error={error}>
+    <RawSelect {...props} error={error} className={className} />
+  </FieldGroup>
 );
 
 export const VariableAssignField = ({
@@ -65,12 +87,12 @@ export const VariableAssignField = ({
 }) => (
   <FieldGroup label={label} helper={helper} error={error}>
     <div className="relative">
-      <StandardInput
+      <RawInput
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Enter value"
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
+        placeholder="Enter variable name"
         className="font-black pl-10"
-        error={error} // Actually StandardInput already wraps with FieldGroup, but we pass error for styling
+        error={error}
       />
       <div className="absolute left-4 top-1/2 -translate-y-1/2 text-black font-black text-lg">$</div>
     </div>
@@ -80,47 +102,52 @@ export const VariableAssignField = ({
 export const ConditionBuilder = ({
   data,
   onChange,
-  errors
+  errors,
+  nodeId
 }: {
   data: { variable?: string; operator?: string; comparisonData?: any };
   onChange: (newData: any) => void;
   errors?: Record<string, string> | null;
+  nodeId?: string;
 }) => {
   const { getAvailableVariables } = useFlow();
-  const vars = getAvailableVariables();
+  const vars = getAvailableVariables(nodeId);
 
   return (
     <FieldGroup label="Logic Condition" helper="Choose a variable to compare against a value." error={errors?.variable || errors?.operator || errors?.comparisonData}>
       <div className="flex flex-col gap-4">
-        <StandardSelect
+        <RawSelect
           value={data.variable || ''}
-          onChange={(e) => onChange({ ...data, variable: e.target.value })}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange({ ...data, variable: e.target.value })}
           className={errors?.variable ? 'border-red-600' : ''}
+          error={errors?.variable}
         >
           <option value="" disabled>Select Variable...</option>
           {vars.map(v => (
             <option key={v} value={v}>{v}</option>
           ))}
-        </StandardSelect>
+        </RawSelect>
 
         <div className="flex gap-4">
-          <StandardSelect
+          <RawSelect
             value={data.operator || '>'}
-            onChange={(e) => onChange({ ...data, operator: e.target.value })}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange({ ...data, operator: e.target.value })}
             className={`w-[80px] ${errors?.operator ? 'border-red-600' : ''}`}
+            error={errors?.operator}
           >
             <option value=">">&gt;</option>
             <option value="<">&lt;</option>
             <option value="==">==</option>
             <option value="!=">!=</option>
-          </StandardSelect>
+          </RawSelect>
 
           <div className="grow">
             <VariableOrValueSelect
-              label="" // Hide label for compact view
+              label=""
               data={data.comparisonData || { mode: 'static', value: '' }}
               onChange={(val) => onChange({ ...data, comparisonData: val })}
               error={errors?.comparisonData}
+              nodeId={nodeId}
             />
           </div>
         </div>
@@ -139,15 +166,17 @@ export const VariableOrValueSelect = ({
   data,
   onChange,
   label,
-  error
+  error,
+  nodeId
 }: {
   data: { mode?: 'static' | 'variable'; value?: string };
   onChange: (newData: any) => void;
   label: string;
   error?: string;
+  nodeId?: string;
 }) => {
   const { getAvailableVariables } = useFlow();
-  const vars = getAvailableVariables();
+  const vars = getAvailableVariables(nodeId);
   const mode = data.mode || 'static';
 
   return (
@@ -173,12 +202,13 @@ export const VariableOrValueSelect = ({
         <div className="relative">
           {mode === 'static' ? (
             <>
-              <StandardInput
+              <RawInput
                 type="text"
                 value={data.value || ''}
-                onChange={(e) => onChange({ ...data, value: e.target.value })}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange({ ...data, value: e.target.value })}
                 placeholder="Enter Fixed Value..."
                 className="pl-12"
+                error={error}
               />
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-black/40 font-black text-xs uppercase tracking-tighter select-none">
                 {getAutoParsedType(data.value || '')}
@@ -186,16 +216,17 @@ export const VariableOrValueSelect = ({
             </>
           ) : (
             <>
-              <StandardSelect
+              <RawSelect
                 value={data.value || ''}
-                onChange={(e) => onChange({ ...data, value: e.target.value })}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange({ ...data, value: e.target.value })}
                 className="pl-10"
+                error={error}
               >
                 <option value="" disabled>Select Variable...</option>
                 {vars.map(v => (
                   <option key={v} value={v}>{v}</option>
                 ))}
-              </StandardSelect>
+              </RawSelect>
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-black font-black text-lg select-none">$</div>
             </>
           )}
