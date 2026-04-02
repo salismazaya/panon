@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/hex"
 	"io"
 	"os"
 )
@@ -33,8 +34,8 @@ func Encrypt(text string) (string, error) {
 		return "", err
 	}
 
-	return string(gcm.Seal(nonce, nonce, textBytes, nil)), nil
-
+	sealed := gcm.Seal(nonce, nonce, textBytes, nil)
+	return hex.EncodeToString(sealed), nil
 }
 
 func Decrypt(ciphertext string) (string, error) {
@@ -46,7 +47,10 @@ func Decrypt(ciphertext string) (string, error) {
 		return "", err
 	}
 
-	ciphertextBytes := []byte(ciphertext)
+	ciphertextBytes, err := hex.DecodeString(ciphertext)
+	if err != nil {
+		return "", err
+	}
 
 	gcm, err := cipher.NewGCM(c)
 	if err != nil {
@@ -64,5 +68,4 @@ func Decrypt(ciphertext string) (string, error) {
 		return "", err
 	}
 	return string(plaintext), nil
-
 }
