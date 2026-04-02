@@ -20,8 +20,6 @@ import (
 
 var tokenAddrRegex = regexp.MustCompile(`on_token_([1-9A-HJ-NP-Za-km-z]{32,44})_received`)
 
-
-
 type Config struct {
 	RpcUrl string
 	WSUrl  string

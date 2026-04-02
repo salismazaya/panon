@@ -44,6 +44,27 @@ func New(rpcClient *rpc.Client, privateKey string) *Client {
 	}
 }
 
+// ensureValidBlockhash ensures that the client has a valid recent blockhash.
+// It retrieves it from the Lua global "recentBlockhash". If it's missing or stale,
+// it fetches a new one and updates the global variable.
+func (c *Client) ensureValidBlockhash(L *lua.LState) (solana.Hash, error) {
+	val := L.GetGlobal("recentBlockhash")
+	if hashStr, ok := val.(lua.LString); ok && string(hashStr) != "" {
+		hash, err := solana.HashFromBase58(string(hashStr))
+		if err == nil && !hash.IsZero() {
+			return hash, nil
+		}
+	}
+
+	latestBlockhash, err := c.RPCClient.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+	if err != nil {
+		return solana.Hash{}, err
+	}
+	newHash := latestBlockhash.Value.Blockhash
+	L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
+	return newHash, nil
+}
+
 // Register registers all Solana-related functions to the provided Lua state.
 func (c *Client) Register(L *lua.LState) {
 	L.SetGlobal("getBalance", L.NewFunction(c.getBalance))
@@ -102,8 +123,9 @@ func (c *Client) transferSol(L *lua.LState) int {
 	}
 
 	amountLamports := uint64(amount * 1e9)
+	time.Sleep(1 * time.Second)
 
-	latestBlockhash, err := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+	recentBlockhash, err := c.ensureValidBlockhash(L)
 	if err != nil {
 		L.RaiseError("%s", "failed to get blockhash: "+err.Error())
 		return 0
@@ -117,7 +139,7 @@ func (c *Client) transferSol(L *lua.LState) int {
 				toPubkey,
 			).Build(),
 		},
-		latestBlockhash.Value.Blockhash,
+		recentBlockhash,
 		solana.TransactionPayer(account.PublicKey()),
 	)
 
@@ -141,19 +163,23 @@ func (c *Client) transferSol(L *lua.LState) int {
 	}
 
 	var sig solana.Signature
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 3; i++ {
 		sig, err = client.SendTransaction(context.Background(), tx)
 		if err == nil {
-			break
+			L.Push(lua.LString(sig.String()))
+			return 1
 		}
 
 		errStr := err.Error()
 		if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") || strings.Contains(errStr, "Blockhash") {
-			log.Printf("⚠️ [transferSol] Account not ready, insufficient funds, or stale blockhash (Attempt %d/5), retrying in 5s...", i+1)
-			time.Sleep(5 * time.Second)
-			if i < 4 {
-				if latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized); errHash == nil {
-					tx.Message.RecentBlockhash = latestBlockhash.Value.Blockhash
+			log.Printf("⚠️ [transferSol] Account not ready, insufficient funds, or stale blockhash (Attempt %d/3), retrying in 2s...", i+1)
+			time.Sleep(2 * time.Second)
+			if i < 2 {
+				latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+				if errHash == nil {
+					newHash := latestBlockhash.Value.Blockhash
+					L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
+					tx.Message.RecentBlockhash = newHash
 					// RE-SIGN REQUIRED!
 					_, _ = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
 						if key == account.PublicKey() {
@@ -169,8 +195,8 @@ func (c *Client) transferSol(L *lua.LState) int {
 		return 0
 	}
 
-	L.Push(lua.LString(sig.String()))
-	return 1
+	L.RaiseError("failed to send transaction after 3 attempts: %v", err)
+	return 0
 }
 
 // transfer executes a unified transfer (SOL or SPL Token).
@@ -197,8 +223,9 @@ func (c *Client) transfer(L *lua.LState) int {
 		}
 
 		amountLamports := uint64(amount * 1e9)
+		time.Sleep(1 * time.Second)
 
-		latestBlockhash, err := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+		recentBlockhash, err := c.ensureValidBlockhash(L)
 		if err != nil {
 			L.RaiseError("failed to get blockhash: %v", err)
 			return 0
@@ -212,7 +239,7 @@ func (c *Client) transfer(L *lua.LState) int {
 					toPubkey,
 				).Build(),
 			},
-			latestBlockhash.Value.Blockhash,
+			recentBlockhash,
 			solana.TransactionPayer(account.PublicKey()),
 		)
 
@@ -236,19 +263,23 @@ func (c *Client) transfer(L *lua.LState) int {
 		}
 
 		var signature solana.Signature
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 3; i++ {
 			signature, err = client.SendTransaction(context.Background(), tx)
 			if err == nil {
-				break
+				L.Push(lua.LString(signature.String()))
+				return 1
 			}
 
 			errStr := err.Error()
 			if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") || strings.Contains(errStr, "Blockhash") {
-				log.Printf("⚠️ [transfer] SOL account not ready, insufficient funds, or stale blockhash (Attempt %d/5), retrying in 5s...", i+1)
-				time.Sleep(5 * time.Second)
-				if i < 4 {
-					if latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized); errHash == nil {
-						tx.Message.RecentBlockhash = latestBlockhash.Value.Blockhash
+				log.Printf("⚠️ [transfer] SOL account not ready, insufficient funds, or stale blockhash (Attempt %d/3), retrying in 2s...", i+1)
+				time.Sleep(2 * time.Second)
+				if i < 2 {
+					latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+					if errHash == nil {
+						newHash := latestBlockhash.Value.Blockhash
+						L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
+						tx.Message.RecentBlockhash = newHash
 						// RE-SIGN REQUIRED!
 						_, _ = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
 							if key == account.PublicKey() {
@@ -264,8 +295,8 @@ func (c *Client) transfer(L *lua.LState) int {
 			return 0
 		}
 
-		L.Push(lua.LString(signature.String()))
-		return 1
+		L.RaiseError("failed to send transaction after 3 attempts: %v", err)
+		return 0
 	}
 
 	// Treat tokenType as the mint address (e.g., for USDC)
@@ -326,9 +357,10 @@ func (c *Client) transfer(L *lua.LState) int {
 		instructions = append(instructions, createInst.Build())
 	}
 
-	latestBlockhash, err := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+	time.Sleep(1 * time.Second)
+	recentBlockhash, err := c.ensureValidBlockhash(L)
 	if err != nil {
-		L.RaiseError("failed to get blockhash: %v", err)
+		L.RaiseError("%s", "failed to get blockhash: "+err.Error())
 		return 0
 	}
 
@@ -379,12 +411,12 @@ func (c *Client) transfer(L *lua.LState) int {
 
 	tx, err := solana.NewTransaction(
 		instructions,
-		latestBlockhash.Value.Blockhash,
+		recentBlockhash,
 		solana.TransactionPayer(account.PublicKey()),
 	)
 
 	if err != nil {
-		L.RaiseError("failed to create transaction: %v", err)
+		L.RaiseError("%s", "failed to create transaction: "+err.Error())
 		return 0
 	}
 
@@ -406,16 +438,27 @@ func (c *Client) transfer(L *lua.LState) int {
 	for i := 0; i < 3; i++ {
 		sig, err = client.SendTransaction(context.Background(), tx)
 		if err == nil {
-			break
+			L.Push(lua.LString(sig.String()))
+			return 1
 		}
 
-		if strings.Contains(err.Error(), "insufficient funds") || strings.Contains(err.Error(), "0x1") {
-			log.Printf("⚠️ Insufficient funds detected for %s transfer (Attempt %d/3), retrying in 2s...", tokenMint, i+1)
+		if strings.Contains(err.Error(), "insufficient funds") || strings.Contains(err.Error(), "0x1") || strings.Contains(err.Error(), "Blockhash") {
+			log.Printf("⚠️ Insufficient funds or stale blockhash detected for %s transfer (Attempt %d/3), retrying in 2s...", tokenMint, i+1)
 			time.Sleep(2 * time.Second)
 			// Re-fetch blockhash if it's potentially stale (minor optimization)
 			if i < 2 {
-				if latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized); errHash == nil {
-					tx.Message.RecentBlockhash = latestBlockhash.Value.Blockhash
+				latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+				if errHash == nil {
+					newHash := latestBlockhash.Value.Blockhash
+					L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
+					tx.Message.RecentBlockhash = newHash
+					// RE-SIGN REQUIRED!
+					_, _ = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+						if key == account.PublicKey() {
+							return &account
+						}
+						return nil
+					})
 				}
 			}
 			continue
@@ -424,8 +467,8 @@ func (c *Client) transfer(L *lua.LState) int {
 		return 0
 	}
 
-	L.Push(lua.LString(sig.String()))
-	return 1
+	L.RaiseError("failed to send transaction after 3 attempts: %v", err)
+	return 0
 }
 
 // getTokenBalance returns the token balance for a given owner and mint.
@@ -535,7 +578,8 @@ func (c *Client) transferToken(L *lua.LState) int {
 		instructions = append(instructions, createInst.Build())
 	}
 
-	latestBlockhash, err := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+	time.Sleep(1 * time.Second)
+	recentBlockhash, err := c.ensureValidBlockhash(L)
 	if err != nil {
 		L.RaiseError("%s", "failed to get blockhash: "+err.Error())
 		return 0
@@ -588,7 +632,7 @@ func (c *Client) transferToken(L *lua.LState) int {
 
 	tx, err := solana.NewTransaction(
 		instructions,
-		latestBlockhash.Value.Blockhash,
+		recentBlockhash,
 		solana.TransactionPayer(account.PublicKey()),
 	)
 
@@ -612,19 +656,23 @@ func (c *Client) transferToken(L *lua.LState) int {
 	}
 
 	var sig solana.Signature
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 3; i++ {
 		sig, err = client.SendTransaction(context.Background(), tx)
 		if err == nil {
-			break
+			L.Push(lua.LString(sig.String()))
+			return 1
 		}
 
 		errStr := err.Error()
 		if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "AccountNotFound") || strings.Contains(errStr, "prior credit") || strings.Contains(errStr, "Blockhash") {
-			log.Printf("⚠️ [transferToken] Account not ready, insufficient funds, or stale blockhash for %s (Attempt %d/5), retrying in 5s...", tokenMint, i+1)
-			time.Sleep(5 * time.Second)
-			if i < 4 {
-				if latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized); errHash == nil {
-					tx.Message.RecentBlockhash = latestBlockhash.Value.Blockhash
+			log.Printf("⚠️ [transferToken] Account not ready, insufficient funds, or stale blockhash for %s (Attempt %d/3), retrying in 2s...", tokenMint, i+1)
+			time.Sleep(2 * time.Second)
+			if i < 2 {
+				latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+				if errHash == nil {
+					newHash := latestBlockhash.Value.Blockhash
+					L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
+					tx.Message.RecentBlockhash = newHash
 					// RE-SIGN REQUIRED!
 					_, _ = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
 						if key == account.PublicKey() {
@@ -640,8 +688,8 @@ func (c *Client) transferToken(L *lua.LState) int {
 		return 0
 	}
 
-	L.Push(lua.LString(sig.String()))
-	return 1
+	L.RaiseError("failed to send transaction after 3 attempts: %v", err)
+	return 0
 }
 
 // createTokenAccount creates a new Associated Token Account.
@@ -675,7 +723,8 @@ func (c *Client) createTokenAccount(L *lua.LState) int {
 		return 0
 	}
 
-	latestBlockhash, err := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+	time.Sleep(1 * time.Second)
+	recentBlockhash, err := c.ensureValidBlockhash(L)
 	if err != nil {
 		L.RaiseError("%s", "failed to get blockhash: "+err.Error())
 		return 0
@@ -689,7 +738,7 @@ func (c *Client) createTokenAccount(L *lua.LState) int {
 				tokenMintPubkey,
 			).Build(),
 		},
-		latestBlockhash.Value.Blockhash,
+		recentBlockhash,
 		solana.TransactionPayer(account.PublicKey()),
 	)
 
@@ -712,19 +761,42 @@ func (c *Client) createTokenAccount(L *lua.LState) int {
 		return 0
 	}
 
-	signature, err := client.SendTransaction(
-		context.Background(),
-		tx,
-	)
+	var signature solana.Signature
+	for i := 0; i < 3; i++ {
+		signature, err = client.SendTransaction(context.Background(), tx)
+		if err == nil {
+			L.Push(lua.LString(signature.String()))
+			L.Push(lua.LString(ata.String()))
+			return 2
+		}
 
-	if err != nil {
+		errStr := err.Error()
+		if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "Blockhash") {
+			log.Printf("⚠️ [createTokenAccount] Stale blockhash or account not ready (Attempt %d/3), retrying in 2s...", i+1)
+			time.Sleep(2 * time.Second)
+			if i < 2 {
+				latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+				if errHash == nil {
+					newHash := latestBlockhash.Value.Blockhash
+					L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
+					tx.Message.RecentBlockhash = newHash
+					// RE-SIGN REQUIRED!
+					_, _ = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+						if key == account.PublicKey() {
+							return &account
+						}
+						return nil
+					})
+				}
+			}
+			continue
+		}
 		L.RaiseError("%s", "failed to send transaction: "+err.Error())
 		return 0
 	}
 
-	L.Push(lua.LString(signature.String()))
-	L.Push(lua.LString(ata.String()))
-	return 2
+	L.RaiseError("failed to create token account after 3 attempts: %v", err)
+	return 0
 }
 
 // mintTokens mints new SPL tokens to a recipient.
@@ -759,7 +831,8 @@ func (c *Client) mintTokens(L *lua.LState) int {
 		return 0
 	}
 
-	latestBlockhash, err := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+	time.Sleep(1 * time.Second)
+	recentBlockhash, err := c.ensureValidBlockhash(L)
 	if err != nil {
 		L.RaiseError("%s", "failed to get blockhash: "+err.Error())
 		return 0
@@ -777,7 +850,7 @@ func (c *Client) mintTokens(L *lua.LState) int {
 				[]solana.PublicKey{},
 			).Build(),
 		},
-		latestBlockhash.Value.Blockhash,
+		recentBlockhash,
 		solana.TransactionPayer(account.PublicKey()),
 	)
 
@@ -786,30 +859,39 @@ func (c *Client) mintTokens(L *lua.LState) int {
 		return 0
 	}
 
-	_, err = tx.Sign(
-		func(key solana.PublicKey) *solana.PrivateKey {
-			if key == account.PublicKey() {
-				return &account
+	var signature solana.Signature
+	for i := 0; i < 3; i++ {
+		signature, err = client.SendTransaction(context.Background(), tx)
+		if err == nil {
+			L.Push(lua.LString(signature.String()))
+			return 1
+		}
+
+		errStr := err.Error()
+		if strings.Contains(errStr, "insufficient funds") || strings.Contains(errStr, "0x1") || strings.Contains(errStr, "Blockhash") {
+			log.Printf("⚠️ [mintTokens] Stale blockhash or insufficient funds (Attempt %d/3), retrying in 2s...", i+1)
+			time.Sleep(2 * time.Second)
+			if i < 2 {
+				latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+				if errHash == nil {
+					newHash := latestBlockhash.Value.Blockhash
+					L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
+					tx.Message.RecentBlockhash = newHash
+					// RE-SIGN REQUIRED!
+					_, _ = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+						if key == account.PublicKey() {
+							return &account
+						}
+						return nil
+					})
+				}
 			}
-			return nil
-		},
-	)
-
-	if err != nil {
-		L.RaiseError("%s", "failed to sign transaction: "+err.Error())
-		return 0
-	}
-
-	signature, err := client.SendTransaction(
-		context.Background(),
-		tx,
-	)
-
-	if err != nil {
+			continue
+		}
 		L.RaiseError("%s", "failed to send transaction: "+err.Error())
 		return 0
 	}
 
-	L.Push(lua.LString(signature.String()))
-	return 1
+	L.RaiseError("failed to mint tokens after 3 attempts: %v", err)
+	return 0
 }

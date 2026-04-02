@@ -7,6 +7,8 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	lua "github.com/yuin/gopher-lua"
@@ -54,8 +56,9 @@ type Handlers struct {
 		ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *ws.AccountResult)) error
 		DisconnectPubKey(pubkey solana.PublicKey)
 	}
-	Auth         *middleware.AuthMiddleware
-	TokenService *service.TokenService
+	Auth             *middleware.AuthMiddleware
+	TokenService     *service.TokenService
+	WorkspaceMutexes sync.Map // map[uint]*sync.Mutex
 }
 
 // New creates a new Handlers instance.
@@ -98,13 +101,45 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 	defer L.Close()
 	L.SetContext(ctx)
 
+	// Concurrency control: per-workspace mutex
+	muInterface, _ := h.WorkspaceMutexes.LoadOrStore(workspace.ID, &sync.Mutex{})
+	mu := muInterface.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
+	signature, err := solana.SignatureFromBase58(input.Signature)
+	if err != nil {
+		return
+	}
+
+	rpcClient := h.SolListener.GetRPCClient(input.Workspace.Network)
+
+	for i := 0; i < 15; i++ {
+		tx, err := rpcClient.GetTransaction(
+			ctx,
+			signature,
+			&rpc.GetTransactionOpts{
+				Commitment: rpc.CommitmentFinalized,
+			},
+		)
+		if err == nil && tx != nil {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
 	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
 	if err != nil {
 		return
 	}
 	address := pk.PublicKey().String()
 
-	rpcClient := h.SolListener.GetRPCClient(workspace.Network)
+	// Pre-fetch blockhash
+	latestBlockhash, err := rpcClient.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	if err == nil {
+		L.SetGlobal("recentBlockhash", lua.LString(latestBlockhash.Value.Blockhash.String()))
+	}
+
 	client := panon.New(rpcClient, workspace.Wallet.GetPrivateKey())
 	client.Register(L)
 
