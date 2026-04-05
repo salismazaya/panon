@@ -10,7 +10,7 @@ export const triggers: Record<string, NodeDef> = {
         subtitle: "Trigger",
         category: "Trigger",
         icon: <SolanaIcon />,
-        colorScheme: "blue",
+        colorScheme: "white",
         modalTitle: "Solana Monitor Setup",
         customHandles: [
             { id: 'sol', position: Position.Bottom, type: 'source' }

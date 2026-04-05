@@ -12,7 +12,7 @@ export interface NodeDef {
     title: string;
     subtitle: string;
     icon: React.ReactNode;
-    colorScheme: 'indigo' | 'blue' | 'orange' | 'emerald' | 'rose' | 'purple';
+    colorScheme: 'indigo' | 'blue' | 'orange' | 'emerald' | 'rose' | 'purple' | 'white';
     category: 'Trigger' | 'Action' | 'Logic' | 'Compute';
     modalTitle?: string;
     initialData?: any;

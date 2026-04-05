@@ -8,8 +8,8 @@ export const actions: Record<string, NodeDef> = {
         title: "Transfer Crypto",
         subtitle: "Action",
         category: "Action",
-        icon: <SendIcon />,
-        colorScheme: "blue",
+        icon: <SolanaIcon />,
+        colorScheme: "white",
         modalTitle: "Transfer Setup",
         validate: (node) => {
             const errors: Record<string, string> = {};
@@ -136,7 +136,7 @@ export const actions: Record<string, NodeDef> = {
         subtitle: "Action",
         category: "Action",
         icon: <SolanaIcon />,
-        colorScheme: "blue",
+        colorScheme: "white",
         modalTitle: "Get SOL Balance Setup",
         validate: (node, nodes) => {
             const errors: Record<string, string> = {};

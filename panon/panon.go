@@ -34,15 +34,17 @@ func FindAssociatedTokenAddressByProgram(wallet solana.PublicKey, mint solana.Pu
 
 // Client represents a Solana client with a specific RPC client and private key.
 type Client struct {
-	RPCClient  *rpc.Client
-	PrivateKey string
+	RPCClient      *rpc.Client
+	PrivateKey     string
+	DurableContext context.Context
 }
 
-// New creates a new panon Client.
-func New(rpcClient *rpc.Client, privateKey string) *Client {
+// New creates a new panon Client with a durable context for persistent operations.
+func New(ctx context.Context, rpcClient *rpc.Client, privateKey string) *Client {
 	return &Client{
-		RPCClient:  rpcClient,
-		PrivateKey: privateKey,
+		RPCClient:      rpcClient,
+		PrivateKey:     privateKey,
+		DurableContext: ctx,
 	}
 }
 
@@ -58,7 +60,7 @@ func (c *Client) ensureValidBlockhash(L *lua.LState) (solana.Hash, error) {
 		}
 	}
 
-	latestBlockhash, err := c.RPCClient.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+	latestBlockhash, err := c.RPCClient.GetLatestBlockhash(c.DurableContext, rpc.CommitmentFinalized)
 	if err != nil {
 		return solana.Hash{}, err
 	}
@@ -91,7 +93,7 @@ func (c *Client) getBalance(L *lua.LState) int {
 	}
 
 	balance, err := client.GetBalance(
-		context.Background(),
+		c.DurableContext,
 		pubkey,
 		rpc.CommitmentConfirmed,
 	)
@@ -166,7 +168,7 @@ func (c *Client) transferSol(L *lua.LState) int {
 
 	var sig solana.Signature
 	for i := 0; i < 3; i++ {
-		sig, err = client.SendTransaction(context.Background(), tx)
+		sig, err = client.SendTransaction(c.DurableContext, tx)
 		if err == nil {
 			L.Push(lua.LString(sig.String()))
 			return 1
@@ -177,7 +179,7 @@ func (c *Client) transferSol(L *lua.LState) int {
 			log.Printf("⚠️ [transferSol] Account not ready, insufficient funds, or stale blockhash (Attempt %d/3), retrying in 2s...", i+1)
 			time.Sleep(2 * time.Second)
 			if i < 2 {
-				latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+				latestBlockhash, errHash := client.GetLatestBlockhash(c.DurableContext, rpc.CommitmentFinalized)
 				if errHash == nil {
 					newHash := latestBlockhash.Value.Blockhash
 					L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
@@ -266,7 +268,7 @@ func (c *Client) transfer(L *lua.LState) int {
 
 		var signature solana.Signature
 		for i := 0; i < 3; i++ {
-			signature, err = client.SendTransaction(context.Background(), tx)
+			signature, err = client.SendTransaction(c.DurableContext, tx)
 			if err == nil {
 				L.Push(lua.LString(signature.String()))
 				return 1
@@ -277,7 +279,7 @@ func (c *Client) transfer(L *lua.LState) int {
 				log.Printf("⚠️ [transfer] SOL account not ready, insufficient funds, or stale blockhash (Attempt %d/3), retrying in 2s...", i+1)
 				time.Sleep(2 * time.Second)
 				if i < 2 {
-					latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+					latestBlockhash, errHash := client.GetLatestBlockhash(c.DurableContext, rpc.CommitmentFinalized)
 					if errHash == nil {
 						newHash := latestBlockhash.Value.Blockhash
 						L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
@@ -324,7 +326,7 @@ func (c *Client) transfer(L *lua.LState) int {
 	}
 
 	// Fetch mint info to determine token program
-	mintAccount, err := client.GetAccountInfo(context.Background(), tokenMintPubkey)
+	mintAccount, err := client.GetAccountInfo(c.DurableContext, tokenMintPubkey)
 	if err != nil {
 		L.RaiseError("failed to get mint info: %v", err)
 		return 0
@@ -345,7 +347,7 @@ func (c *Client) transfer(L *lua.LState) int {
 	}
 
 	instructions := []solana.Instruction{}
-	_, err = client.GetAccountInfo(context.Background(), toATA)
+	_, err = client.GetAccountInfo(c.DurableContext, toATA)
 	if err != nil { // Account likely missing, bundle creation instruction
 		createInst := associatedtokenaccount.NewCreateInstruction(
 			account.PublicKey(),
@@ -438,7 +440,7 @@ func (c *Client) transfer(L *lua.LState) int {
 
 	var sig solana.Signature
 	for i := 0; i < 3; i++ {
-		sig, err = client.SendTransaction(context.Background(), tx)
+		sig, err = client.SendTransaction(c.DurableContext, tx)
 		if err == nil {
 			L.Push(lua.LString(sig.String()))
 			return 1
@@ -449,7 +451,7 @@ func (c *Client) transfer(L *lua.LState) int {
 			time.Sleep(2 * time.Second)
 			// Re-fetch blockhash if it's potentially stale (minor optimization)
 			if i < 2 {
-				latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+				latestBlockhash, errHash := client.GetLatestBlockhash(c.DurableContext, rpc.CommitmentFinalized)
 				if errHash == nil {
 					newHash := latestBlockhash.Value.Blockhash
 					L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
@@ -493,7 +495,7 @@ func (c *Client) getTokenBalance(L *lua.LState) int {
 	}
 
 	// Fetch mint info to determine token program
-	mintAccount, err := client.GetAccountInfo(context.Background(), tokenMintPubkey)
+	mintAccount, err := client.GetAccountInfo(c.DurableContext, tokenMintPubkey)
 	if err != nil {
 		L.RaiseError("%s", "failed to get mint info: "+err.Error())
 		return 0
@@ -507,7 +509,7 @@ func (c *Client) getTokenBalance(L *lua.LState) int {
 		return 0
 	}
 
-	accountInfo, err := client.GetTokenAccountBalance(context.Background(), ata, rpc.CommitmentFinalized)
+	accountInfo, err := client.GetTokenAccountBalance(c.DurableContext, ata, rpc.CommitmentFinalized)
 	if err != nil {
 		if strings.Contains(err.Error(), "could not find account") {
 			// If account doesn't exist, return balance 0 with correct decimals from mint
@@ -562,7 +564,7 @@ func (c *Client) transferToken(L *lua.LState) int {
 	}
 
 	// Fetch mint info to determine token program
-	mintAccount, err := client.GetAccountInfo(context.Background(), tokenMintPubkey)
+	mintAccount, err := client.GetAccountInfo(c.DurableContext, tokenMintPubkey)
 	if err != nil {
 		L.RaiseError("%s", "failed to get mint info: "+err.Error())
 		return 0
@@ -583,7 +585,7 @@ func (c *Client) transferToken(L *lua.LState) int {
 	}
 
 	instructions := []solana.Instruction{}
-	_, err = client.GetAccountInfo(context.Background(), toATA)
+	_, err = client.GetAccountInfo(c.DurableContext, toATA)
 	if err != nil { // Account likely missing, bundle creation instruction
 		createInst := associatedtokenaccount.NewCreateInstruction(
 			account.PublicKey(),
@@ -676,7 +678,7 @@ func (c *Client) transferToken(L *lua.LState) int {
 
 	var sig solana.Signature
 	for i := 0; i < 3; i++ {
-		sig, err = client.SendTransaction(context.Background(), tx)
+		sig, err = client.SendTransaction(c.DurableContext, tx)
 		if err == nil {
 			L.Push(lua.LString(sig.String()))
 			return 1
@@ -687,7 +689,7 @@ func (c *Client) transferToken(L *lua.LState) int {
 			log.Printf("⚠️ [transferToken] Account not ready, insufficient funds, or stale blockhash for %s (Attempt %d/3), retrying in 2s...", tokenMint, i+1)
 			time.Sleep(2 * time.Second)
 			if i < 2 {
-				latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+				latestBlockhash, errHash := client.GetLatestBlockhash(c.DurableContext, rpc.CommitmentFinalized)
 				if errHash == nil {
 					newHash := latestBlockhash.Value.Blockhash
 					L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
@@ -782,7 +784,7 @@ func (c *Client) createTokenAccount(L *lua.LState) int {
 
 	var signature solana.Signature
 	for i := 0; i < 3; i++ {
-		signature, err = client.SendTransaction(context.Background(), tx)
+		signature, err = client.SendTransaction(c.DurableContext, tx)
 		if err == nil {
 			L.Push(lua.LString(signature.String()))
 			L.Push(lua.LString(ata.String()))
@@ -794,7 +796,7 @@ func (c *Client) createTokenAccount(L *lua.LState) int {
 			log.Printf("⚠️ [createTokenAccount] Stale blockhash or account not ready (Attempt %d/3), retrying in 2s...", i+1)
 			time.Sleep(2 * time.Second)
 			if i < 2 {
-				latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+				latestBlockhash, errHash := client.GetLatestBlockhash(c.DurableContext, rpc.CommitmentFinalized)
 				if errHash == nil {
 					newHash := latestBlockhash.Value.Blockhash
 					L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))
@@ -880,7 +882,7 @@ func (c *Client) mintTokens(L *lua.LState) int {
 
 	var signature solana.Signature
 	for i := 0; i < 3; i++ {
-		signature, err = client.SendTransaction(context.Background(), tx)
+		signature, err = client.SendTransaction(c.DurableContext, tx)
 		if err == nil {
 			L.Push(lua.LString(signature.String()))
 			return 1
@@ -891,7 +893,7 @@ func (c *Client) mintTokens(L *lua.LState) int {
 			log.Printf("⚠️ [mintTokens] Stale blockhash or insufficient funds (Attempt %d/3), retrying in 2s...", i+1)
 			time.Sleep(2 * time.Second)
 			if i < 2 {
-				latestBlockhash, errHash := client.GetLatestBlockhash(context.Background(), rpc.CommitmentFinalized)
+				latestBlockhash, errHash := client.GetLatestBlockhash(c.DurableContext, rpc.CommitmentFinalized)
 				if errHash == nil {
 					newHash := latestBlockhash.Value.Blockhash
 					L.SetGlobal("recentBlockhash", lua.LString(newHash.String()))

@@ -97,9 +97,13 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 		return
 	}
 
+	// Create a stable execution context with a 1-minute timeout to survive workspace re-registrations.
+	executionCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
 	L := lua.NewState()
 	defer L.Close()
-	L.SetContext(ctx)
+	L.SetContext(executionCtx)
 
 	// Concurrency control: per-workspace mutex
 	muInterface, _ := h.WorkspaceMutexes.LoadOrStore(workspace.ID, &sync.Mutex{})
@@ -116,7 +120,7 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 
 	for i := 0; i < 15; i++ {
 		tx, err := rpcClient.GetTransaction(
-			ctx,
+			executionCtx,
 			signature,
 			&rpc.GetTransactionOpts{
 				Commitment: rpc.CommitmentFinalized,
@@ -135,12 +139,12 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 	address := pk.PublicKey().String()
 
 	// Pre-fetch blockhash
-	latestBlockhash, err := rpcClient.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	latestBlockhash, err := rpcClient.GetLatestBlockhash(executionCtx, rpc.CommitmentFinalized)
 	if err == nil {
 		L.SetGlobal("recentBlockhash", lua.LString(latestBlockhash.Value.Blockhash.String()))
 	}
 
-	client := panon.New(rpcClient, workspace.Wallet.GetPrivateKey())
+	client := panon.New(context.Background(), rpcClient, workspace.Wallet.GetPrivateKey())
 	client.Register(L)
 
 	L.SetGlobal("rpcUrl", lua.LString(h.SolListener.GetRPCURL(workspace.Network)))

@@ -14,7 +14,7 @@ export interface BaseNodeProps {
     icon: React.ReactNode;
     title: string;
     subtitle: string;
-    colorScheme?: 'indigo' | 'blue' | 'orange' | 'emerald' | 'rose' | 'purple';
+    colorScheme?: 'indigo' | 'blue' | 'orange' | 'emerald' | 'rose' | 'purple' | 'white';
     modalTitle?: string;
     modalBody?: (data: any, updateData: (newData: any) => void, errors: Record<string, string> | null) => React.ReactNode;
     onClick?: () => void;
@@ -67,9 +67,16 @@ const colorMap = {
     },
     purple: {
         accent: 'text-black',
-        bg: 'bg-[#c084fc]', // Purple 400
+        bg: 'bg-[#a855f7]', // Purple 500
         border: 'border-black',
-        button: 'bg-[#c084fc] text-black hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_#000]',
+        button: 'bg-[#a855f7] text-black hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_#000]',
+        handle: '!border-black !bg-white'
+    },
+    white: {
+        accent: 'text-black',
+        bg: 'bg-white',
+        border: 'border-black',
+        button: 'bg-white text-black hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_#000]',
         handle: '!border-black !bg-white'
     }
 };
