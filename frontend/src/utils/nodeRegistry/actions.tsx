@@ -76,6 +76,8 @@ export const actions: Record<string, NodeDef> = {
             const aData = data.amountData;
             const tAddress = data.tokenAddress;
 
+            // console.log("Validating TransferToken node with data:", data);
+
             if (!tAddress || tAddress.trim() === '') {
                 errors.tokenAddress = "Token address is required";
             } else if (!isValidBase58(tAddress)) {
@@ -121,7 +123,7 @@ export const actions: Record<string, NodeDef> = {
                 <VariableOrValueSelect
                     label="Amount"
                     data={draft.amountData || { mode: 'static', value: '0' }}
-                    onChange={(val: any) => update({ amountData: val })}
+                    onChange={(val) => update({ amountData: val })}
                     error={errors?.amountData}
                     nodeId={nodeId}
                 />
@@ -164,5 +166,63 @@ export const actions: Record<string, NodeDef> = {
                 />
             </div>
         )
-    }
+    },
+
+    GetTokenBalance: {
+        title: "Get Token Balance",
+        subtitle: "Action",
+        category: "Action",
+        icon: <SendIcon />,
+        colorScheme: "emerald",
+        modalTitle: "Get Token Balance Setup",
+        validate: (node, nodes) => {
+            const errors: Record<string, string> = {};
+            const data = node.data as any;
+            const tAddress = data.tokenAddress?.value;
+            const bAmount = data.balanceAmount;
+
+            if (!tAddress || tAddress.trim() === '') {
+                errors.tokenAddress = "Token address is required";
+            } else if (!isValidBase58(tAddress)) {
+                errors.tokenAddress = "Token address must be a valid Solana base58 address";
+            }
+
+            const bError = isValidVariableName(bAmount?.trim());
+            if (bError) errors.balanceAmount = bError;
+            if (!errors.balanceAmount && bAmount && !isUnique(node.id, bAmount, nodes)) {
+                errors.balanceAmount = "Variable name must be unique";
+            }
+
+            return Object.keys(errors).length > 0 ? errors : null;
+        },
+        generate: (node, { getNext, indent }) => {
+            const data = node.data as any;
+            const fnName = "getTokenBalance"
+            const tokenAddress = formatLuaValue(data.tokenAddress)
+            const varBalance = data.balanceAmount || 'token_balance';
+            const userAddress = "my_address";
+            const core = `local ${varBalance} = ${fnName}(${userAddress}, ${tokenAddress})`;
+            const nextPart = getNext(node.id);
+            return withWrapper(node, core, nextPart, indent);
+        },
+        modalBody: (draft, update, errors, nodeId, renameVariable) => (
+            <div className="space-y-6">
+                <VariableOrValueSelect
+                    label="Token Address"
+                    data={draft.tokenAddress || { mode: 'static', value: '' }}
+                    onChange={(val: any) => update({ tokenAddress: val })}
+                    error={errors?.tokenAddress}
+                    nodeId={nodeId}
+                />
+
+                <VariableAssignField
+                    label="Balance Variable"
+                    value={draft.balanceAmount || ''}
+                    onChange={(val: any) => handleVariableRename('balanceAmount', val, draft, update, renameVariable)}
+                    error={errors?.balanceAmount}
+                    helper="The token balance will be stored in this variable."
+                />
+            </div>
+        )
+    },
 };

@@ -2,8 +2,10 @@ package panon
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -507,12 +509,29 @@ func (c *Client) getTokenBalance(L *lua.LState) int {
 
 	accountInfo, err := client.GetTokenAccountBalance(context.Background(), ata, rpc.CommitmentFinalized)
 	if err != nil {
+		if strings.Contains(err.Error(), "could not find account") {
+			// If account doesn't exist, return balance 0 with correct decimals from mint
+			mintData := mintAccount.Value.Data.GetBinary()
+			if len(mintData) < 45 {
+				L.RaiseError("failed to decode mint info: invalid account data size")
+				return 0
+			}
+			mintDecimals := mintData[44]
+			L.Push(lua.LNumber(0))
+			L.Push(lua.LString(strconv.Itoa(int(mintDecimals))))
+			return 2
+		}
 		L.RaiseError("%s", "failed to get token balance: "+err.Error())
 		return 0
 	}
 
-	L.Push(lua.LString(accountInfo.Value.Amount))
-	L.Push(lua.LString(accountInfo.Value.Decimals))
+	if accountInfo.Value.UiAmount != nil {
+		L.Push(lua.LNumber(*accountInfo.Value.UiAmount))
+	} else {
+		amountRaw, _ := strconv.ParseFloat(accountInfo.Value.Amount, 64)
+		L.Push(lua.LNumber(amountRaw / math.Pow10(int(accountInfo.Value.Decimals))))
+	}
+	L.Push(lua.LString(fmt.Sprintf("%v", accountInfo.Value.Decimals)))
 	return 2
 }
 

@@ -95,7 +95,7 @@ export function BaseNode({
     const theme = colorMap[colorScheme];
 
     const isValid = type && !isSidebar ? isNodeValid({ id, data, type } as any) : true;
-    const draftErrors = type && !isSidebar ? getNodeErrors({ id, data: draftData, type } as any) : null;
+    const draftErrors = isSidebar ? null : (type ? getNodeErrors({ id, data: draftData, type } as any) : null);
 
     // Ensure draftData stays in sync when modal opens
     const handleOpenModal = () => {
