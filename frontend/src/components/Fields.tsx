@@ -72,6 +72,28 @@ export const StandardSelect = ({ label = '', helper, error, className, ...props 
   </FieldGroup>
 );
 
+export interface StandardTextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  label?: string;
+  helper?: string;
+  error?: string;
+}
+
+export const RawTextarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement> & { error?: string }>(
+  ({ error, className, ...props }, ref) => (
+    <textarea
+      {...props}
+      ref={ref}
+      className={`w-full bg-white border-3 border-black px-4 py-3 text-sm font-black focus:outline-none focus:shadow-[4px_4px_0px_0px_#000] focus:translate-x-[-2px] focus:translate-y-[-2px] transition-all placeholder:text-black/30 text-black min-h-[120px] resize-y ${error ? 'border-red-600' : ''} ${className || ''}`}
+    />
+  )
+);
+
+export const StandardTextarea = ({ label = '', helper, error, className, ...props }: StandardTextareaProps) => (
+  <FieldGroup label={label} helper={helper} error={error}>
+    <RawTextarea {...props} error={error} className={className} />
+  </FieldGroup>
+);
+
 export const VariableAssignField = ({
   value,
   onChange,
@@ -237,3 +259,86 @@ export const VariableOrValueSelect = ({
 };
 
 
+
+export const KeyValueField = ({
+  label,
+  helper,
+  data = [],
+  onChange,
+  error,
+  nodeId
+}: {
+  label: string;
+  helper?: string;
+  data: { key: string; value: { mode: 'static' | 'variable'; value: string } }[];
+  onChange: (newData: any[]) => void;
+  error?: string;
+  nodeId?: string;
+}) => {
+  const addRow = () => {
+    onChange([...data, { key: '', value: { mode: 'static', value: '' } }]);
+  };
+
+  const removeRow = (index: number) => {
+    const newData = [...data];
+    newData.splice(index, 1);
+    onChange(newData);
+  };
+
+  const updateRow = (index: number, field: string, val: any) => {
+    const newData = [...data];
+    if (field === 'key') {
+      newData[index].key = val;
+    } else {
+      newData[index].value = val;
+    }
+    onChange(newData);
+  };
+
+  return (
+    <FieldGroup label={label} helper={helper} error={error}>
+      <div className="space-y-4">
+        {data.map((row, index) => (
+          <div key={index} className="flex gap-4 items-start bg-black/5 p-4 border-2 border-dashed border-black">
+            <div className="flex-1 space-y-2">
+              <label className="text-[10px] font-black uppercase opacity-50">Key</label>
+              <RawInput
+                placeholder="e.g. Content-Type"
+                value={row.key}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateRow(index, 'key', e.target.value)}
+              />
+            </div>
+            <div className="flex-[1.5] space-y-2">
+              <label className="text-[10px] font-black uppercase opacity-50">Value</label>
+              <VariableOrValueSelect
+                label=""
+                data={row.value || { mode: 'static', value: '' }}
+                onChange={(val) => updateRow(index, 'value', val)}
+                nodeId={nodeId}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => removeRow(index)}
+              className="mt-8 bg-red-600 text-white p-2 border-3 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none transition-all"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addRow}
+          className="w-full py-3 bg-white border-3 border-black text-xs font-black uppercase tracking-widest shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all flex items-center justify-center gap-2"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M12 4v16m8-8H4" />
+          </svg>
+          Add Header
+        </button>
+      </div>
+    </FieldGroup>
+  );
+};

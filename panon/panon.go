@@ -1,10 +1,13 @@
 package panon
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"math"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +18,7 @@ import (
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
 	lua "github.com/yuin/gopher-lua"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -37,14 +41,18 @@ type Client struct {
 	RPCClient      *rpc.Client
 	PrivateKey     string
 	DurableContext context.Context
+	RedisClient    *redis.Client
+	WorkspaceID    uint
 }
 
 // New creates a new panon Client with a durable context for persistent operations.
-func New(ctx context.Context, rpcClient *rpc.Client, privateKey string) *Client {
+func New(ctx context.Context, rpcClient *rpc.Client, privateKey string, rdb *redis.Client, wsID uint) *Client {
 	return &Client{
 		RPCClient:      rpcClient,
 		PrivateKey:     privateKey,
 		DurableContext: ctx,
+		RedisClient:    rdb,
+		WorkspaceID:    wsID,
 	}
 }
 
@@ -78,6 +86,9 @@ func (c *Client) Register(L *lua.LState) {
 	L.SetGlobal("transfer", L.NewFunction(c.transfer))
 	L.SetGlobal("createTokenAccount", L.NewFunction(c.createTokenAccount))
 	L.SetGlobal("mintTokens", L.NewFunction(c.mintTokens))
+	L.SetGlobal("httpRequest", L.NewFunction(c.httpRequest))
+	L.SetGlobal("setMemory", L.NewFunction(c.setMemory))
+	L.SetGlobal("getMemory", L.NewFunction(c.getMemory))
 }
 
 // getBalance returns the SOL balance of a given address.
@@ -915,4 +926,91 @@ func (c *Client) mintTokens(L *lua.LState) int {
 
 	L.RaiseError("failed to mint tokens after 3 attempts: %v", err)
 	return 0
+}
+
+// httpRequest performs a generic HTTP request.
+// Usage: body, status = httpRequest(url, method, headers, payload)
+func (c *Client) httpRequest(L *lua.LState) int {
+	url := L.ToString(1)
+	method := strings.ToUpper(L.ToString(2))
+	headersTable := L.ToTable(3)
+	payload := L.ToString(4)
+
+	var bodyReader io.Reader
+	if payload != "" {
+		bodyReader = bytes.NewBufferString(payload)
+	}
+
+	req, err := http.NewRequestWithContext(c.DurableContext, method, url, bodyReader)
+	if err != nil {
+		L.RaiseError("failed to create request: %v", err)
+		return 0
+	}
+
+	if headersTable != nil {
+		headersTable.ForEach(func(k, v lua.LValue) {
+			req.Header.Set(k.String(), v.String())
+		})
+	}
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		L.RaiseError("http request failed: %v", err)
+		return 0
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		L.RaiseError("failed to read response body: %v", err)
+		return 0
+	}
+
+	L.Push(lua.LString(string(body)))
+	L.Push(lua.LNumber(float64(resp.StatusCode)))
+	return 2
+}
+
+func (c *Client) setMemory(L *lua.LState) int {
+	name := L.ToString(1)
+	value := L.ToString(2)
+
+	if c.RedisClient == nil {
+		L.RaiseError("redis client not initialized")
+		return 0
+	}
+
+	key := fmt.Sprintf("%d_%s", c.WorkspaceID, name)
+	err := c.RedisClient.Set(c.DurableContext, key, value, 0).Err()
+	if err != nil {
+		L.RaiseError("failed to set memory: %v", err)
+	}
+	return 0
+}
+
+func (c *Client) getMemory(L *lua.LState) int {
+	name := L.ToString(1)
+
+	if c.RedisClient == nil {
+		L.RaiseError("redis client not initialized")
+		return 0
+	}
+
+	key := fmt.Sprintf("%d_%s", c.WorkspaceID, name)
+	val, err := c.RedisClient.Get(c.DurableContext, key).Result()
+	if err != nil {
+		if err == redis.Nil {
+			L.Push(lua.LNil)
+			return 1
+		}
+		L.RaiseError("failed to get memory: %v", err)
+		return 0
+	}
+
+	L.Push(lua.LString(val))
+	return 1
 }

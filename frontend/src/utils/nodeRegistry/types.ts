@@ -15,6 +15,7 @@ export interface NodeDef {
     colorScheme: 'indigo' | 'blue' | 'orange' | 'emerald' | 'rose' | 'purple' | 'white';
     category: 'Trigger' | 'Action' | 'Logic' | 'Compute';
     modalTitle?: string;
+    modalSize?: 'small' | 'large' | 'xl';
     initialData?: any;
     customHandles?: {
         id: string;
@@ -71,6 +72,20 @@ export const formatLuaValue = (data: any, defaultValue: string = '""') => {
 
     const val = data.value || '';
     if (val === '') return '""';
+
+    // Handle interpolation {{variable}}
+    if (val.includes('{{') && val.includes('}}')) {
+        const parts = val.split(/(\{\{.*?\}\})/g);
+        const luaParts = parts.filter((p: string) => p !== "").map((p: string) => {
+            if (p.startsWith('{{') && p.endsWith('}}')) {
+                const varName = p.slice(2, -2).trim();
+                return `tostring(${varName} or "")`;
+            }
+            return `"${p.replace(/"/g, '\\"')}"`;
+        });
+        return luaParts.join(' .. ');
+    }
+
     if (val === 'true' || val === 'false') return val;
     const isDecimal = /^-?\d+(\.\d+)?$/.test(val);
     if (isDecimal) return val;

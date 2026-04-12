@@ -140,7 +140,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       closeTimeoutMS={200}
       ariaHideApp={false}
     >
-      <div className="bg-white">
+      <div className="flex flex-col flex-1 min-h-0 bg-white">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b-4 border-black bg-[#818cf8]">
           <div>
@@ -160,32 +160,29 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         <div className="flex border-b-4 border-black">
           <button
             onClick={() => { setActiveTab('username'); resetForm(); }}
-            className={`flex-1 py-3 text-[11px] font-black uppercase tracking-widest transition-colors ${
-              activeTab === 'username' ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'
-            }`}
+            className={`flex-1 py-3 text-[11px] font-black uppercase tracking-widest transition-colors ${activeTab === 'username' ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'
+              }`}
           >
             Change Username
           </button>
           <button
             onClick={() => { setActiveTab('password'); resetForm(); }}
-            className={`flex-1 py-3 text-[11px] font-black uppercase tracking-widest transition-colors border-l-4 border-black ${
-              activeTab === 'password' ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'
-            }`}
+            className={`flex-1 py-3 text-[11px] font-black uppercase tracking-widest transition-colors border-l-4 border-black ${activeTab === 'password' ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'
+              }`}
           >
             Change Password
           </button>
           <button
             onClick={() => { setActiveTab('workspace'); resetForm(); setWsName(currentWorkspace?.name || ''); setWsNetwork(currentWorkspace?.network || 'devnet'); }}
-            className={`flex-1 py-3 text-[11px] font-black uppercase tracking-widest transition-colors border-l-4 border-black ${
-              activeTab === 'workspace' ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'
-            }`}
+            className={`flex-1 py-3 text-[11px] font-black uppercase tracking-widest transition-colors border-l-4 border-black ${activeTab === 'workspace' ? 'bg-black text-white' : 'bg-white text-black hover:bg-black/5'
+              }`}
           >
             Workspace
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="p-6 flex-1 min-h-0 overflow-y-auto">
           {error && (
             <div className="mb-4 bg-red-50 border-3 border-red-500 p-3 flex items-center gap-3">
               <svg className="w-4 h-4 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -233,11 +230,10 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className={`w-full py-3 border-4 border-black text-sm font-black uppercase tracking-widest transition-all ${
-                  isLoading
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                    : 'bg-[#facc15] text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
-                }`}
+                className={`w-full py-3 border-4 border-black text-sm font-black uppercase tracking-widest transition-all ${isLoading
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  : 'bg-[#facc15] text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
+                  }`}
               >
                 {isLoading ? 'Updating...' : 'Update Username'}
               </button>
@@ -283,11 +279,10 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className={`w-full py-3 border-4 border-black text-sm font-black uppercase tracking-widest transition-all ${
-                  isLoading
-                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                    : 'bg-[#818cf8] text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
-                }`}
+                className={`w-full py-3 border-4 border-black text-sm font-black uppercase tracking-widest transition-all ${isLoading
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  : 'bg-[#818cf8] text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
+                  }`}
               >
                 {isLoading ? 'Updating...' : 'Update Password'}
               </button>
@@ -314,9 +309,8 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                   <button
                     type="button"
                     onClick={() => setWsNetwork('mainnet')}
-                    className={`flex-1 py-3 text-xs font-black uppercase transition-all ${
-                      wsNetwork === 'mainnet' ? 'bg-orange-400 text-black' : 'bg-white text-black hover:bg-slate-50'
-                    }`}
+                    className={`flex-1 py-3 text-xs font-black uppercase transition-all ${wsNetwork === 'mainnet' ? 'bg-orange-400 text-black' : 'bg-white text-black hover:bg-slate-50'
+                      }`}
                   >
                     Mainnet
                   </button>
@@ -324,9 +318,8 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                   <button
                     type="button"
                     onClick={() => setWsNetwork('devnet')}
-                    className={`flex-1 py-3 text-xs font-black uppercase transition-all ${
-                      wsNetwork === 'devnet' ? 'bg-blue-400 text-black' : 'bg-white text-black hover:bg-slate-50'
-                    }`}
+                    className={`flex-1 py-3 text-xs font-black uppercase transition-all ${wsNetwork === 'devnet' ? 'bg-blue-400 text-black' : 'bg-white text-black hover:bg-slate-50'
+                      }`}
                   >
                     Devnet
                   </button>
@@ -336,11 +329,10 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className={`w-full py-3 border-4 border-black text-sm font-black uppercase tracking-widest transition-all ${
-                    isLoading
-                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                      : 'bg-emerald-400 text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
-                  }`}
+                  className={`w-full py-3 border-4 border-black text-sm font-black uppercase tracking-widest transition-all ${isLoading
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    : 'bg-emerald-400 text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
+                    }`}
                 >
                   {isLoading ? 'Saving...' : 'Save Workspace Changes'}
                 </button>

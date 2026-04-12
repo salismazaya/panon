@@ -22,6 +22,7 @@ import (
 	"github.com/salismazaya/panon/internal/models"
 	"github.com/salismazaya/panon/internal/service"
 	"github.com/salismazaya/panon/panon"
+	"github.com/redis/go-redis/v9"
 )
 
 // ExecuteRequest represents a code execution request.
@@ -58,6 +59,7 @@ type Handlers struct {
 	}
 	Auth             *middleware.AuthMiddleware
 	TokenService     *service.TokenService
+	RedisClient      *redis.Client
 	WorkspaceMutexes sync.Map // map[uint]*sync.Mutex
 }
 
@@ -69,12 +71,13 @@ func New(defaultAddress string, getPrivateKey func() string, tokenService *servi
 	GetRPCClient(network models.Network) *rpc.Client
 	ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *ws.AccountResult)) error
 	DisconnectPubKey(pubkey solana.PublicKey)
-}) *Handlers {
+}, rdb *redis.Client) *Handlers {
 	return &Handlers{
 		DefaultAddress: defaultAddress,
 		GetPrivateKey:  getPrivateKey,
 		TokenService:   tokenService,
 		SolListener:    solListener,
+		RedisClient:    rdb,
 	}
 }
 
@@ -144,7 +147,7 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 		L.SetGlobal("recentBlockhash", lua.LString(latestBlockhash.Value.Blockhash.String()))
 	}
 
-	client := panon.New(context.Background(), rpcClient, workspace.Wallet.GetPrivateKey())
+	client := panon.New(context.Background(), rpcClient, workspace.Wallet.GetPrivateKey(), h.RedisClient, workspace.ID)
 	client.Register(L)
 
 	L.SetGlobal("rpcUrl", lua.LString(h.SolListener.GetRPCURL(workspace.Network)))

@@ -16,6 +16,7 @@ export interface BaseNodeProps {
     subtitle: string;
     colorScheme?: 'indigo' | 'blue' | 'orange' | 'emerald' | 'rose' | 'purple' | 'white';
     modalTitle?: string;
+    modalSize?: 'small' | 'large' | 'xl';
     modalBody?: (data: any, updateData: (newData: any) => void, errors: Record<string, string> | null) => React.ReactNode;
     onClick?: () => void;
     children?: React.ReactNode;
@@ -89,6 +90,7 @@ export function BaseNode({
     subtitle,
     colorScheme = 'indigo',
     modalTitle,
+    modalSize = 'small',
     modalBody,
     onClick,
     children,
@@ -200,8 +202,9 @@ export function BaseNode({
                     onRequestClose={() => setIsModalOpen(false)}
                     contentLabel={modalTitle || "Setup Node"}
                     closeTimeoutMS={300}
+                    className={`ReactModal__Content modal-${modalSize}`}
                 >
-                    <div className="flex flex-col h-full bg-white selection:bg-black/10">
+                    <div className="flex flex-col flex-1 min-h-0 bg-white selection:bg-black/10">
                         {/* Header */}
                         <div className="px-8 py-6 border-b-4 border-black flex items-center justify-between">
                             <div>

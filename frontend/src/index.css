@@ -82,10 +82,20 @@ body {
   width: 90%;
   max-width: 500px;
   max-height: 85vh;
+  display: flex !important;
+  flex-direction: column;
   outline: none;
   overflow: hidden !important;
   transform: translate(0, 20px);
   transition: transform 200ms ease-in-out;
+}
+
+.modal-large {
+  max-width: 800px !important;
+}
+
+.modal-xl {
+  max-width: 1140px !important;
 }
 
 .ReactModal__Content--after-open {

@@ -15,6 +15,8 @@ import (
 	"github.com/salismazaya/panon/internal/listener"
 	"github.com/salismazaya/panon/internal/middleware"
 	"github.com/salismazaya/panon/internal/models"
+	"github.com/redis/go-redis/v9"
+	"os"
 )
 
 func main() {
@@ -24,6 +26,17 @@ func main() {
 	}
 	// Initialize database
 	db := database.GetDatabase()
+
+	// Initialize Redis
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379"
+	}
+	opt, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Fatalf("Failed to parse Redis URL: %v", err)
+	}
+	rdb := redis.NewClient(opt)
 
 	// Ensure at least one workspace exists (and that migrations have been run)
 	var count int64
@@ -55,7 +68,7 @@ func main() {
 
 	// Initialize handlers and auth
 	authHandlers := handlers.NewAuthHandlers()
-	h := handlers.New("", func() string { return "" }, authHandlers.TokenService, solListener)
+	h := handlers.New("", func() string { return "" }, authHandlers.TokenService, solListener, rdb)
 
 	// Initialize auth middleware with token validation from authHandlers
 	auth := middleware.NewAuth(authHandlers.ValidateToken)
