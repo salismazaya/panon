@@ -15,4 +15,5 @@ type ExecutorInput struct {
 	TokenAmountIn  float64
 	TokenMint      string
 	Signer         string
+	CronFnName     string
 }

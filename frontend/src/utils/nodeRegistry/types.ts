@@ -68,7 +68,10 @@ export const withWrapper = (node: Node, code: string, nextCode: string, indent: 
 
 export const formatLuaValue = (data: any, defaultValue: string = '""') => {
     if (!data) return defaultValue;
-    if (data.mode === 'variable') return data.value || defaultValue;
+    if (data.mode === 'variable') {
+        const varName = (data.value || '').trim();
+        return varName !== '' ? varName : defaultValue;
+    }
 
     const val = data.value || '';
     if (val === '') return '""';

@@ -1,7 +1,7 @@
 import React from 'react';
 import { VariableAssignField, VariableOrValueSelect, FieldGroup, StandardSelect, KeyValueField, StandardTextarea, StandardInput } from '../../components/Fields';
 import { type NodeDef, isValidVariableName, isUnique, withWrapper, formatLuaValue, handleVariableRename, isValidBase58 } from './types';
-import { SendIcon, SolanaIcon, GlobeIcon, DatabaseIcon } from './icons';
+import { SendIcon, SolanaIcon, GlobeIcon, DatabaseIcon, JSONIcon, SwapIcon } from './icons';
 
 export const actions: Record<string, NodeDef> = {
     Transfer: {
@@ -18,15 +18,26 @@ export const actions: Record<string, NodeDef> = {
             const aData = data.amountData;
 
             if (!rData || !rData.value?.trim()) errors.recipientData = "Recipient address is required";
-            if (!aData || (aData.mode === 'variable' ? !aData.value?.trim() : (aData.value === undefined || aData.value === null || aData.value.toString().trim() === ''))) {
+            
+            if (!aData || !aData.value || aData.value.toString().trim() === '') {
                 errors.amountData = "Transfer amount is required";
+            } else if (aData.mode === 'variable') {
+                const bError = isValidVariableName(aData.value.trim());
+                if (bError) errors.amountData = "Invalid variable: " + bError;
+            } else if (aData.mode === 'static') {
+                const num = parseFloat(aData.value);
+                if (isNaN(num) || num <= 0) {
+                    errors.amountData = "Static amount must be a positive number";
+                }
             }
+            
             return Object.keys(errors).length > 0 ? errors : null;
         },
         generate: (node, { getNext, indent }) => {
             const data = node.data as any;
             const fnName = 'transferSol';
             const recipient = formatLuaValue(data.recipientData, '"0x..."');
+            // If it's a variable, we want the variable name. If it's static, we want the number.
             const amount = formatLuaValue(data.amountData, '0');
             const core = `${fnName}(${recipient}, ${amount})`;
             const nextPart = getNext(node.id);
@@ -87,6 +98,9 @@ export const actions: Record<string, NodeDef> = {
             if (!rData || !rData.value?.trim()) errors.recipientData = "Recipient address is required";
             if (!aData || (aData.mode === 'variable' ? !aData.value?.trim() : (aData.value === undefined || aData.value === null || aData.value.toString().trim() === ''))) {
                 errors.amountData = "Transfer amount is required";
+            } else if (aData.mode === 'variable') {
+                const bError = isValidVariableName(aData.value.trim());
+                if (bError) errors.amountData = "Invalid variable: " + bError;
             }
             return Object.keys(errors).length > 0 ? errors : null;
         },
@@ -415,6 +429,125 @@ export const actions: Record<string, NodeDef> = {
                     onChange={(val) => handleVariableRename('assignedVariable', val, draft, update, renameVariable)}
                     error={errors?.assignedVariable}
                     helper="Stores the retrieved value."
+                />
+            </div>
+        )
+    },
+
+    ExtractJson: {
+        title: "Extract JSON",
+        subtitle: "Utility",
+        category: "Action",
+        icon: <JSONIcon />,
+        colorScheme: "orange",
+        modalTitle: "JSON Extraction Setup",
+        validate: (node, nodes) => {
+            const errors: Record<string, string> = {};
+            const data = node.data as any;
+            if (!data.jsonData?.value?.trim()) errors.jsonData = "JSON data is required";
+            if (!data.path?.trim()) errors.path = "Path is required";
+
+            const vError = isValidVariableName(data.assignedVariable?.trim());
+            if (vError) errors.assignedVariable = vError;
+            if (!errors.assignedVariable && data.assignedVariable && !isUnique(node.id, data.assignedVariable, nodes)) {
+                errors.assignedVariable = "Variable name must be unique";
+            }
+            return Object.keys(errors).length > 0 ? errors : null;
+        },
+        generate: (node, { getNext, indent }) => {
+            const data = node.data as any;
+            const json = formatLuaValue(data.jsonData, '""');
+            const path = `"${data.path || ''}"`;
+            const variable = data.assignedVariable || 'extracted_val';
+
+            const core = `local ${variable} = jsonExtract(${json}, ${path})`;
+            return withWrapper(node, core, getNext(node.id), indent);
+        },
+        modalBody: (draft, update, errors, nodeId, renameVariable) => (
+            <div className="space-y-6">
+                <VariableOrValueSelect
+                    label="JSON Data"
+                    helper="The JSON string to extract from (e.g. {{http_body}})."
+                    data={draft.jsonData || { mode: 'variable', value: '' }}
+                    onChange={(val: any) => update({ jsonData: val })}
+                    error={errors?.jsonData}
+                    nodeId={nodeId}
+                />
+                <StandardInput
+                    label="JSON Path"
+                    helper="Path to the field (e.g. 'user.name' or 'data.list[0].id')."
+                    value={draft.path || ''}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ path: e.target.value })}
+                    error={errors?.path}
+                />
+                <VariableAssignField
+                    label="Assign to Variable"
+                    value={draft.assignedVariable || ''}
+                    onChange={(val) => handleVariableRename('assignedVariable', val, draft, update, renameVariable)}
+                    error={errors?.assignedVariable}
+                    helper="Stores the extracted value."
+                />
+            </div>
+        )
+    },
+    JupiterSwap: {
+        title: "Jupiter Swap",
+        subtitle: "Action",
+        category: "Action",
+        icon: <SwapIcon />,
+        colorScheme: "blue",
+        modalTitle: "Jupiter Swap Setup",
+        validate: (node) => {
+            const errors: Record<string, string> = {};
+            const data = node.data as any;
+            if (!data.inputMint?.trim()) errors.inputMint = "Input mint is required";
+            if (!data.outputMint?.trim()) errors.outputMint = "Output mint is required";
+            if (!data.amountData || (data.amountData.mode === 'variable' ? !data.amountData.value?.trim() : (data.amountData.value === undefined || data.amountData.value === null || data.amountData.value.toString().trim() === ''))) {
+                errors.amountData = "Amount is required";
+            } else if (data.amountData.mode === 'variable') {
+                const bError = isValidVariableName(data.amountData.value.trim());
+                if (bError) errors.amountData = "Invalid variable: " + bError;
+            }
+            return Object.keys(errors).length > 0 ? errors : null;
+        },
+        generate: (node, { getNext, indent }) => {
+            const data = node.data as any;
+            const inputMint = data.inputMint || 'So11111111111111111111111111111111111111112';
+            const outputMint = data.outputMint || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+            const amount = formatLuaValue(data.amountData, '0');
+            const slippage = data.slippage || 50;
+            const core = `jupiterSwap("${inputMint}", "${outputMint}", ${amount}, ${slippage})`;
+            return withWrapper(node, core, getNext(node.id), indent);
+        },
+        modalBody: (draft, update, errors, nodeId) => (
+            <div className="space-y-6">
+                <StandardInput
+                    label="Input Mint Address"
+                    helper="The token address you want to swap FROM (e.g. SOL or USDC)."
+                    value={draft.inputMint || ''}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ inputMint: e.target.value })}
+                    error={errors?.inputMint}
+                />
+                <StandardInput
+                    label="Output Mint Address"
+                    helper="The token address you want to swap TO."
+                    value={draft.outputMint || ''}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ outputMint: e.target.value })}
+                    error={errors?.outputMint}
+                />
+                <VariableOrValueSelect
+                    label="Amount"
+                    data={draft.amountData || { mode: 'static', value: '0' }}
+                    onChange={(val: any) => update({ amountData: val })}
+                    error={errors?.amountData}
+                    nodeId={nodeId}
+                />
+                <StandardInput
+                    label="Slippage (BPS)"
+                    helper="Slippage in basis points (50 = 0.5%)."
+                    type="number"
+                    value={draft.slippage || 50}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ slippage: parseInt(e.target.value) })}
                 />
             </div>
         )

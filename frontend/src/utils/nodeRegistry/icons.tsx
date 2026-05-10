@@ -75,3 +75,30 @@ export const DatabaseIcon = () => (
         <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3" />
     </svg>
 );
+
+export const JSONIcon = () => (
+    <svg className="w-5 h-5 text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.5)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <path d="M8 13h.01" />
+        <path d="M12 13h.01" />
+        <path d="M16 13h.01" />
+        <path d="M8 17h.01" />
+        <path d="M12 17h.01" />
+        <path d="M16 17h.01" />
+    </svg>
+);
+
+export const ClockIcon = () => (
+    <svg className="w-5 h-5 text-rose-400 drop-shadow-[0_0_8px_rgba(251,113,133,0.5)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+    </svg>
+);
+export const SwapIcon = () => (
+    <svg className="w-5 h-5 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M7 10l5-5 5 5" />
+        <path d="M12 5v14" />
+        <path d="M17 14l-5 5-5-5" />
+    </svg>
+);

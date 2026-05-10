@@ -1,10 +1,84 @@
 import React from 'react';
 import { Position } from '@xyflow/react';
-import { VariableAssignField, StandardInput } from '../../components/Fields';
+import { VariableAssignField, StandardInput, StandardSelect } from '../../components/Fields';
 import { type NodeDef, isValidVariableName, isUnique, withWrapper, handleVariableRename, isValidBase58 } from './types';
-import { SolanaIcon, USDCIcon, TokenIcon } from './icons';
+import { SolanaIcon, USDCIcon, TokenIcon, ClockIcon } from './icons';
 
 export const triggers: Record<string, NodeDef> = {
+    OnCron: {
+        title: "Cron Trigger",
+        subtitle: "Trigger",
+        category: "Trigger",
+        icon: <ClockIcon />,
+        colorScheme: "rose",
+        modalTitle: "Cron Trigger Setup",
+        customHandles: [
+            { id: 'cron', position: Position.Bottom, type: 'source' }
+        ],
+        validate: (node) => {
+            const errors: Record<string, string> = {};
+            const data = node.data as any;
+            if (!data.cronSpec?.trim()) {
+                errors.cronSpec = "Cron expression is required";
+            }
+            return Object.keys(errors).length > 0 ? errors : null;
+        },
+        generate: (node, { getNext, indent }) => {
+            const data = node.data as any;
+            const spec = (data.cronSpec?.trim()) || '* * * * *';
+            const fnName = `on_cron_${node.id.replace(/-/g, '_')}`;
+            const body = getNext(node.id);
+            const core = `-- cron: ${spec}\nfunction ${fnName}()\n${indent(body || '-- no actions')}\nend`;
+            return withWrapper(node, core, '', indent);
+        },
+        modalBody: (draft, update, errors) => {
+            const presets = [
+                { label: "Every Second", value: "* * * * * *" },
+                { label: "Every 10 Seconds", value: "*/10 * * * * *" },
+                { label: "Every Minute", value: "* * * * *" },
+                { label: "Every 5 Minutes", value: "*/5 * * * *" },
+                { label: "Every Hour", value: "0 * * * *" },
+                { label: "Every Day at Midnight", value: "0 0 * * *" },
+                { label: "Every Week (Sunday)", value: "0 0 * * 0" },
+                { label: "Custom Expression", value: "custom" }
+            ];
+
+            const isCustom = !presets.some(p => p.value === draft.cronSpec) && draft.cronSpec !== undefined;
+            const selectedValue = isCustom ? "custom" : (draft.cronSpec || "* * * * *");
+
+            return (
+                <div className="space-y-6">
+                    <StandardSelect
+                        label="Interval Preset"
+                        value={selectedValue}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                            const val = e.target.value;
+                            if (val === "custom") {
+                                // Add a trailing space to make it "custom" (not matching any preset)
+                                update({ cronSpec: (draft.cronSpec || "* * * * *") + " " });
+                            } else {
+                                update({ cronSpec: val });
+                            }
+                        }}
+                    >
+                        {presets.map(p => (
+                            <option key={p.value} value={p.value}>{p.label}</option>
+                        ))}
+                    </StandardSelect>
+
+                    {(selectedValue === "custom" || isCustom) && (
+                        <StandardInput
+                            label="Custom Cron Expression"
+                            helper="Use standard cron format: minute hour day(month) month day(week). Supports 5 or 6 fields."
+                            value={draft.cronSpec || ''}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => update({ cronSpec: e.target.value })}
+                            error={errors?.cronSpec}
+                        />
+                    )}
+                </div>
+            );
+        }
+    },
     OnSolReceived: {
         title: "Solana Received",
         subtitle: "Trigger",
@@ -43,7 +117,9 @@ export const triggers: Record<string, NodeDef> = {
             const amountVar = data.assignedVariable || 'amount';
             const senderVar = data.assignedSender || 'sender';
             const body = getNext(node.id);
-            const core = `function ${fnName}(${amountVar}, ${senderVar})\n${indent(body || '-- no actions')}\nend`;
+            const core = `function ${fnName}(${amountVar}, ${senderVar})\n` +
+                indent(`local success = waitForTransaction(on_tx_hash)\nif success then\n${indent(`${body || '-- no actions'}`)}\nend`) +
+                `\nend`;
             return withWrapper(node, core, '', indent);
         },
         modalBody: (draft, update, errors, _, renameVariable) => (
@@ -101,7 +177,9 @@ export const triggers: Record<string, NodeDef> = {
             const amountVar = data.assignedVariable || 'amount';
             const senderVar = data.assignedSender || 'sender';
             const body = getNext(node.id);
-            const core = `function ${fnName}(${amountVar}, ${senderVar})\n${indent(body || '-- no actions')}\nend`;
+            const core = `function ${fnName}(${amountVar}, ${senderVar})\n` +
+                indent(`local success = waitForTransaction(on_tx_hash)\nif success then\n${indent(`${body || '-- no actions'}`)}\nend`) +
+                `\nend`;
             return withWrapper(node, core, '', indent);
         },
         modalBody: (draft, update, errors, _, renameVariable) => (
@@ -167,7 +245,9 @@ export const triggers: Record<string, NodeDef> = {
             const tokenAddressVar = data.tokenAddressVar || 'token';
             const fnName = data.customName || `on_token_${tokenAddressVar}_received`;
             const body = getNext(node.id);
-            const core = `function ${fnName}(${amountVar}, ${senderVar})\n${indent(body || '-- no actions')}\nend`;
+            const core = `function ${fnName}(${amountVar}, ${senderVar})\n` +
+                indent(`local success = waitForTransaction(on_tx_hash)\nif success then\n${indent(`${body || '-- no actions'}`)}\nend`) +
+                `\nend`;
             return withWrapper(node, core, '', indent);
         },
         modalBody: (draft, update, errors, _, renameVariable) => (

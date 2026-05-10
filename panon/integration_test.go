@@ -1,8 +1,7 @@
-//go:build integration
-
 package panon
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/gagliardetto/solana-go"
@@ -182,4 +181,72 @@ end
 // parsePublicKey is a helper to parse a base58 public key (panics on error for tests).
 func parsePublicKey(address string) (solana.PublicKey, error) {
 	return solana.PublicKeyFromBase58(address)
+}
+
+// TestLua_JsonExtract verifies that the jsonExtract function works correctly.
+func TestLua_JsonExtract(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+
+	// Minimal client for registration
+	client := &Client{}
+	client.Register(L)
+
+	tests := []struct {
+		name     string
+		json     string
+		path     string
+		expected interface{}
+	}{
+		{
+			"simple field",
+			`{"name": "Alice"}`,
+			"name",
+			"Alice",
+		},
+		{
+			"nested field",
+			`{"user": {"id": 123}}`,
+			"user.id",
+			float64(123),
+		},
+		{
+			"array element",
+			`{"list": ["first", "second"]}`,
+			"list[0]",
+			"first",
+		},
+		{
+			"nested array element",
+			`{"data": {"items": [{"val": 10}, {"val": 20}]}}`,
+			"data.items[1].val",
+			float64(20),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			script := fmt.Sprintf(`res = jsonExtract([[ %s ]], "%s")`, tt.json, tt.path)
+			if err := L.DoString(script); err != nil {
+				t.Fatalf("Lua execution failed: %v", err)
+			}
+
+			res := L.GetGlobal("res")
+			var got interface{}
+			switch res.Type() {
+			case lua.LTString:
+				got = res.String()
+			case lua.LTNumber:
+				got = float64(res.(lua.LNumber))
+			case lua.LTBool:
+				got = bool(res.(lua.LBool))
+			case lua.LTNil:
+				got = nil
+			}
+
+			if got != tt.expected {
+				t.Errorf("jsonExtract() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
 }

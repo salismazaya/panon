@@ -1,5 +1,3 @@
-//go:build integration
-
 package panon
 
 import (
@@ -128,7 +126,7 @@ func newFundedClient(t *testing.T) clientInfo {
 	waitForBalance(t, pubkey, 1.9)
 
 	rpcClient := rpc.New(localRPC)
-	client := New(rpcClient, pk.String())
+	client := New(context.Background(), rpcClient, pk.String(), nil, 0, "")
 
 	return clientInfo{
 		Client:     client,

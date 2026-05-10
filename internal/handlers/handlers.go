@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,13 +17,13 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/ws"
+	"github.com/redis/go-redis/v9"
 	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/helpers"
 	"github.com/salismazaya/panon/internal/middleware"
 	"github.com/salismazaya/panon/internal/models"
 	"github.com/salismazaya/panon/internal/service"
 	"github.com/salismazaya/panon/panon"
-	"github.com/redis/go-redis/v9"
 )
 
 // ExecuteRequest represents a code execution request.
@@ -81,6 +82,8 @@ func New(defaultAddress string, getPrivateKey func() string, tokenService *servi
 	}
 }
 
+// lua.State
+
 // ExecuteLuaTrigger executes the Lua trigger when SOL or Token is received.
 func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorInput) {
 	workspace := input.Workspace
@@ -104,8 +107,10 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 	executionCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 
-	L := lua.NewState()
-	defer L.Close()
+	// Fetch Lua state from pool
+	L := GlobalLuaPool.Get()
+	defer GlobalLuaPool.Put(L)
+
 	L.SetContext(executionCtx)
 
 	// Concurrency control: per-workspace mutex
@@ -114,26 +119,7 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 	mu.Lock()
 	defer mu.Unlock()
 
-	signature, err := solana.SignatureFromBase58(input.Signature)
-	if err != nil {
-		return
-	}
-
 	rpcClient := h.SolListener.GetRPCClient(input.Workspace.Network)
-
-	for i := 0; i < 15; i++ {
-		tx, err := rpcClient.GetTransaction(
-			executionCtx,
-			signature,
-			&rpc.GetTransactionOpts{
-				Commitment: rpc.CommitmentFinalized,
-			},
-		)
-		if err == nil && tx != nil {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
 
 	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
 	if err != nil {
@@ -147,12 +133,14 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 		L.SetGlobal("recentBlockhash", lua.LString(latestBlockhash.Value.Blockhash.String()))
 	}
 
-	client := panon.New(context.Background(), rpcClient, workspace.Wallet.GetPrivateKey(), h.RedisClient, workspace.ID)
+	jupiterAPIKey := os.Getenv("JUPITER_API_KEY")
+	client := panon.New(context.Background(), rpcClient, workspace.Wallet.GetPrivateKey(), h.RedisClient, workspace.ID, jupiterAPIKey)
 	client.Register(L)
 
 	L.SetGlobal("rpcUrl", lua.LString(h.SolListener.GetRPCURL(workspace.Network)))
 	L.SetGlobal("privateKey", lua.LString(workspace.Wallet.GetPrivateKey()))
 	L.SetGlobal("my_address", lua.LString(address))
+	L.SetGlobal("on_tx_hash", lua.LString(input.Signature))
 
 	if err := L.DoString(string(code)); err != nil {
 		log.Printf("❌ Lua Error: %v", err)
@@ -160,19 +148,23 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 	}
 
 	var fn lua.LValue
-	var amount float64
 	var triggerName string
+	var args []lua.LValue
 
-	if input.TokenMint != "" {
+	if input.CronFnName != "" {
+		triggerName = input.CronFnName
+		fn = L.GetGlobal(triggerName)
+		// Cron functions don't have arguments for now
+	} else if input.TokenMint != "" {
 		// Token transfer
 		triggerName = fmt.Sprintf("on_token_%s_received", input.TokenMint)
 		fn = L.GetGlobal(triggerName)
-		amount = input.TokenAmountIn
+		args = append(args, lua.LNumber(input.TokenAmountIn), lua.LString(input.Signer))
 	} else {
 		// SOL transfer
 		triggerName = "on_sol_received"
 		fn = L.GetGlobal(triggerName)
-		amount = input.SolAmountIn
+		args = append(args, lua.LNumber(input.SolAmountIn), lua.LString(input.Signer))
 	}
 
 	if fn.Type() != lua.LTFunction {
@@ -183,7 +175,7 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 		Fn:      fn,
 		NRet:    0,
 		Protect: true,
-	}, lua.LNumber(amount), lua.LString(input.Signer))
+	}, args...)
 
 	if err != nil {
 		log.Printf("❌ Error executing Lua callback %s: %v", triggerName, err)

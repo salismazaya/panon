@@ -139,7 +139,7 @@ export const ConditionBuilder = ({
     <FieldGroup label="Logic Condition" helper="Choose a variable to compare against a value." error={errors?.variable || errors?.operator || errors?.comparisonData}>
       <div className="flex flex-col gap-4">
         <RawSelect
-          value={data.variable || ''}
+          value={vars.includes(data.variable || '') ? data.variable : ''}
           onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange({ ...data, variable: e.target.value })}
           className={errors?.variable ? 'border-red-600' : ''}
           error={errors?.variable}
@@ -188,12 +188,14 @@ export const VariableOrValueSelect = ({
   data,
   onChange,
   label,
+  helper,
   error,
   nodeId
 }: {
   data: { mode?: 'static' | 'variable'; value?: string };
   onChange: (newData: any) => void;
   label: string;
+  helper?: string;
   error?: string;
   nodeId?: string;
 }) => {
@@ -202,7 +204,7 @@ export const VariableOrValueSelect = ({
   const mode = data.mode || 'static';
 
   return (
-    <FieldGroup label={label} helper={`Choose between a fixed value or a dynamic variable.`} error={error}>
+    <FieldGroup label={label} helper={helper || `Choose between a fixed value or a dynamic variable.`} error={error}>
       <div className="flex flex-col gap-4">
         <div className="flex border-3 border-black p-1 bg-white">
           <button
@@ -214,8 +216,14 @@ export const VariableOrValueSelect = ({
           </button>
           <button
             type="button"
-            onClick={() => onChange({ ...data, mode: 'variable' })}
-            className={`growlabel="t" py-2 px-3 text-[10px] font-black uppercase tracking-widest transition-all ${mode === 'variable' ? 'bg-black text-white' : 'text-black hover:bg-black/5'}`}
+            onClick={() => {
+              let newValue = data.value;
+              if (vars.length > 0 && (!data.value || !vars.includes(data.value))) {
+                newValue = vars[0];
+              }
+              onChange({ ...data, mode: 'variable', value: newValue });
+            }}
+            className={`grow py-2 px-3 text-[10px] font-black uppercase tracking-widest transition-all ${mode === 'variable' ? 'bg-black text-white' : 'text-black hover:bg-black/5'}`}
           >
             Variable Ref
           </button>
@@ -239,7 +247,7 @@ export const VariableOrValueSelect = ({
           ) : (
             <>
               <RawSelect
-                value={data.value || ''}
+                value={vars.includes(data.value || '') ? data.value : ''}
                 onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange({ ...data, value: e.target.value })}
                 className="pl-10"
                 error={error}

@@ -119,6 +119,8 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
       if (typeof n.data?.assignedVariable === 'string' && n.data.assignedVariable.trim()) vars.add(n.data.assignedVariable.trim());
       if (typeof n.data?.assignedSender === 'string' && n.data.assignedSender.trim()) vars.add(n.data.assignedSender.trim());
       if (typeof n.data?.balanceAmount === 'string' && n.data.balanceAmount.trim()) vars.add(n.data.balanceAmount.trim());
+      if (typeof n.data?.bodyVariable === 'string' && n.data.bodyVariable.trim()) vars.add(n.data.bodyVariable.trim());
+      if (typeof n.data?.statusVariable === 'string' && n.data.statusVariable.trim()) vars.add(n.data.statusVariable.trim());
     });
 
     return Array.from(vars);
@@ -142,7 +144,13 @@ export const FlowProvider = ({ children }: { children: ReactNode }) => {
     if (!name.trim()) return true;
     return !nodes.some(node =>
       node.id !== nodeId &&
-      (node.data?.assignedVariable === name || node.data?.assignedSender === name || node.data?.balanceAmount === name)
+      (
+        node.data?.assignedVariable === name || 
+        node.data?.assignedSender === name || 
+        node.data?.balanceAmount === name ||
+        node.data?.bodyVariable === name ||
+        node.data?.statusVariable === name
+      )
     );
   }, [nodes]);
 

@@ -9,6 +9,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/joho/godotenv"
+	"strconv"
 
 	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/handlers"
@@ -28,15 +29,42 @@ func main() {
 	db := database.GetDatabase()
 
 	// Initialize Redis
+	var opt *redis.Options
 	redisURL := os.Getenv("REDIS_URL")
-	if redisURL == "" {
-		redisURL = "redis://localhost:6379"
-	}
-	opt, err := redis.ParseURL(redisURL)
-	if err != nil {
-		log.Fatalf("Failed to parse Redis URL: %v", err)
+	if redisURL != "" {
+		var err error
+		opt, err = redis.ParseURL(redisURL)
+		if err != nil {
+			log.Fatalf("Failed to parse Redis URL: %v", err)
+		}
+	} else {
+		host := os.Getenv("REDIS_HOST")
+		if host == "" {
+			host = "localhost"
+		}
+		port := os.Getenv("REDIS_PORT")
+		if port == "" {
+			port = "6379"
+		}
+		password := os.Getenv("REDIS_PASSWORD")
+		dbStr := os.Getenv("REDIS_DB")
+		db, _ := strconv.Atoi(dbStr)
+
+		opt = &redis.Options{
+			Addr:     fmt.Sprintf("%s:%s", host, port),
+			Password: password,
+			DB:       db,
+		}
 	}
 	rdb := redis.NewClient(opt)
+
+	// Initialize Lua Pool
+	poolSizeStr := os.Getenv("LUA_POOL_SIZE")
+	poolSize, _ := strconv.Atoi(poolSizeStr)
+	if poolSize <= 0 {
+		poolSize = 10 // Default
+	}
+	handlers.InitLuaPool(poolSize)
 
 	// Ensure at least one workspace exists (and that migrations have been run)
 	var count int64
@@ -52,23 +80,46 @@ func main() {
 	app.Use(cors.New())
 
 	// Create Solana listeners for both Mainnet and Devnet
-	mainnetCfg := listener.Config{
-		RpcUrl: "https://api.mainnet-beta.solana.com",
-		WSUrl:  "wss://api.mainnet-beta.solana.com",
+	mainnetRpc := os.Getenv("SOLANA_MAINNET_RPC")
+	if mainnetRpc == "" {
+		mainnetRpc = "https://api.mainnet-beta.solana.com"
 	}
-	devnetCfg := listener.Config{
-		RpcUrl: "https://api.devnet.solana.com",
-		WSUrl:  "wss://api.devnet.solana.com",
+	mainnetWs := os.Getenv("SOLANA_MAINNET_WS")
+	if mainnetWs == "" {
+		mainnetWs = "wss://api.mainnet-beta.solana.com"
 	}
 
-	solListener, err := listener.NewMulti(mainnetCfg, devnetCfg)
+	devnetRpc := os.Getenv("SOLANA_DEVNET_RPC")
+	if devnetRpc == "" {
+		devnetRpc = "https://api.devnet.solana.com"
+	}
+	devnetWs := os.Getenv("SOLANA_DEVNET_WS")
+	if devnetWs == "" {
+		devnetWs = "wss://api.devnet.solana.com"
+	}
+
+	mainnetCfg := listener.Config{
+		RpcUrl: mainnetRpc,
+		WSUrl:  mainnetWs,
+	}
+	devnetCfg := listener.Config{
+		RpcUrl: devnetRpc,
+		WSUrl:  devnetWs,
+	}
+
+	// Initialize handlers and auth (without solListener for now)
+	authHandlers := handlers.NewAuthHandlers()
+	h := handlers.New("", func() string { return "" }, authHandlers.TokenService, nil, rdb)
+
+	solListener, err := listener.NewMulti(mainnetCfg, devnetCfg, func(ctx context.Context, input models.ExecutorInput) {
+		h.ExecuteLuaTrigger(ctx, input)
+	})
 	if err != nil {
 		log.Fatalf("Failed to create Solana listener: %v", err)
 	}
 
-	// Initialize handlers and auth
-	authHandlers := handlers.NewAuthHandlers()
-	h := handlers.New("", func() string { return "" }, authHandlers.TokenService, solListener, rdb)
+	// Set solListener to handler
+	h.SolListener = solListener
 
 	// Initialize auth middleware with token validation from authHandlers
 	auth := middleware.NewAuth(authHandlers.ValidateToken)

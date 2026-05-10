@@ -83,7 +83,7 @@ func (l *Listener) RegisterWorkspace(workspace models.Workspace, executor func(c
 		}
 		newLamports := got.Value.Lamports
 		if newLamports > lastLamports {
-			l.processSOLChange(ctx, lastLamports, newLamports, pubkey, workspace, executor)
+			l.processSOLChange(ctx, pubkey, workspace, executor)
 		}
 		lastLamports = newLamports
 	})
@@ -154,25 +154,40 @@ func (l *Listener) registerTokenMonitor(ctx context.Context, workspace models.Wo
 }
 
 func (l *Listener) processTokenChange(ctx context.Context, pre uint64, post uint64, ata solana.PublicKey, mint solana.PublicKey, workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) {
-	// Berikan waktu sedikit agar indexer RPC sempat mencatat signature-nya
-	time.Sleep(2 * time.Second)
+	var sig solana.Signature
+	foundNew := false
 
-	sigs, err := l.rpcClient.GetSignaturesForAddressWithOpts(
-		ctx,
-		ata,
-		&rpc.GetSignaturesForAddressOpts{
-			Limit:      pointer(1),
-			Commitment: rpc.CommitmentConfirmed,
-		},
-	)
+	// Retry fetching signatures to wait for indexer lag
+	for attempt := 0; attempt < 5; attempt++ {
+		sigs, err := l.rpcClient.GetSignaturesForAddressWithOpts(
+			ctx,
+			ata,
+			&rpc.GetSignaturesForAddressOpts{
+				Limit:      pointer(1),
+				Commitment: rpc.CommitmentConfirmed,
+			},
+		)
 
-	if err != nil || len(sigs) == 0 {
+		if err == nil && len(sigs) > 0 {
+			sig = sigs[0].Signature
+			l.mu.RLock()
+			if !l.processedSignatures[sig.String()] {
+				l.mu.RUnlock()
+				foundNew = true
+				break
+			}
+			l.mu.RUnlock()
+		}
+
+		time.Sleep(2 * time.Second)
+	}
+
+	if !foundNew {
+		log.Printf("⚠️ No new signature found for token change at %s after retries", ata)
 		return
 	}
 
-	sig := sigs[0].Signature
-
-	// Cek duplikasi signature
+	// Cek duplikasi signature (final)
 	l.mu.Lock()
 	if l.processedSignatures[sig.String()] {
 		l.mu.Unlock()
@@ -182,7 +197,15 @@ func (l *Listener) processTokenChange(ctx context.Context, pre uint64, post uint
 	l.mu.Unlock()
 
 	// Fetch transaction untuk mendapatkan sender
-	tx, err := l.rpcClient.GetTransaction(ctx, sig, &rpc.GetTransactionOpts{Commitment: rpc.CommitmentConfirmed, Encoding: solana.EncodingBase64})
+	tx, err := l.rpcClient.GetTransaction(
+		ctx,
+		sig,
+		&rpc.GetTransactionOpts{
+			Commitment:                     rpc.CommitmentConfirmed,
+			Encoding:                       solana.EncodingBase64,
+			MaxSupportedTransactionVersion: pointer(uint64(0)),
+		},
+	)
 	if err != nil || tx == nil || tx.Meta == nil {
 		return
 	}
@@ -403,20 +426,40 @@ func (l *Listener) GetRPCClient() *rpc.Client {
 	return l.rpcClient
 }
 
-func (l *Listener) processSOLChange(ctx context.Context, preLamports, postLamports uint64, myPubkey solana.PublicKey, workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) {
-	sigs, err := l.rpcClient.GetSignaturesForAddressWithOpts(
-		ctx,
-		myPubkey,
-		&rpc.GetSignaturesForAddressOpts{
-			Limit:      pointer(1),
-			Commitment: rpc.CommitmentConfirmed,
-		},
-	)
-	if err != nil || len(sigs) == 0 {
+func (l *Listener) processSOLChange(ctx context.Context, myPubkey solana.PublicKey, workspace models.Workspace, executor func(context.Context, models.ExecutorInput)) {
+	var sig solana.Signature
+	foundNew := false
+
+	// Retry fetching signatures to wait for indexer lag
+	for attempt := 0; attempt < 5; attempt++ {
+		sigs, err := l.rpcClient.GetSignaturesForAddressWithOpts(
+			ctx,
+			myPubkey,
+			&rpc.GetSignaturesForAddressOpts{
+				Limit:      pointer(1),
+				Commitment: rpc.CommitmentConfirmed,
+			},
+		)
+
+		if err == nil && len(sigs) > 0 {
+			sig = sigs[0].Signature
+			l.mu.RLock()
+			if !l.processedSignatures[sig.String()] {
+				l.mu.RUnlock()
+				foundNew = true
+				break
+			}
+			l.mu.RUnlock()
+		}
+
+		time.Sleep(2 * time.Second)
+	}
+
+	if !foundNew {
+		log.Printf("⚠️ No new signature found for SOL change at %s after retries", myPubkey)
 		return
 	}
 
-	sig := sigs[0].Signature
 	l.processTransactionBySignature(ctx, sig, workspace, executor)
 }
 
@@ -431,7 +474,7 @@ func (l *Listener) processTransactionBySignature(ctx context.Context, sig solana
 
 	var tx *rpc.GetTransactionResult
 	var err error
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 10; i++ { // Increase to 10 retries
 		if err := l.limiter.Wait(ctx); err != nil {
 			return
 		}
@@ -439,17 +482,19 @@ func (l *Listener) processTransactionBySignature(ctx context.Context, sig solana
 			ctx,
 			sig,
 			&rpc.GetTransactionOpts{
-				Commitment: rpc.CommitmentConfirmed,
-				Encoding:   solana.EncodingBase64,
+				Commitment:                     rpc.CommitmentConfirmed,
+				Encoding:                       solana.EncodingBase64,
+				MaxSupportedTransactionVersion: pointer(uint64(0)),
 			},
 		)
-		if err == nil && tx != nil {
+		if err == nil && tx != nil && tx.Meta != nil {
 			break
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(2 * time.Second) // Increase sleep to 2s
 	}
 
 	if err != nil || tx == nil || tx.Meta == nil {
+		log.Printf("❌ Failed to fetch transaction details for %s after retries: %v", sig, err)
 		return
 	}
 
@@ -496,10 +541,11 @@ func (l *Listener) processTransactionBySignature(ctx context.Context, sig solana
 }
 
 type MultiListener struct {
-	listeners map[models.Network]*Listener
+	listeners   map[models.Network]*Listener
+	cronManager *CronManager
 }
 
-func NewMulti(mainnetConfig Config, devnetConfig Config) (*MultiListener, error) {
+func NewMulti(mainnetConfig Config, devnetConfig Config, executor func(context.Context, models.ExecutorInput)) (*MultiListener, error) {
 	mainnet, err := New(mainnetConfig)
 	if err != nil {
 		return nil, err
@@ -515,6 +561,7 @@ func NewMulti(mainnetConfig Config, devnetConfig Config) (*MultiListener, error)
 			models.NetworkMainnet: mainnet,
 			models.NetworkDevnet:  devnet,
 		},
+		cronManager: NewCronManager(executor),
 	}, nil
 }
 
@@ -523,7 +570,11 @@ func (ml *MultiListener) RegisterWorkspace(workspace models.Workspace, executor 
 	if !ok {
 		return errors.New("unsupported network: " + string(workspace.Network))
 	}
-	return l.RegisterWorkspace(workspace, executor)
+	if err := l.RegisterWorkspace(workspace, executor); err != nil {
+		return err
+	}
+	ml.cronManager.RegisterWorkspace(workspace)
+	return nil
 }
 
 func (ml *MultiListener) ClearSignatures() {
@@ -538,6 +589,7 @@ func (ml *MultiListener) UnregisterWorkspace(workspaceID uint) error {
 			return err
 		}
 	}
+	ml.cronManager.UnregisterWorkspace(workspaceID)
 	return nil
 }
 
