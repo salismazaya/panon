@@ -19,7 +19,7 @@ export const CodeModal = ({ isOpen, onClose, code }: CodeModalProps) => {
             contentLabel="Generated Lua Code"
             closeTimeoutMS={300}
         >
-            <div className="flex flex-col h-full bg-white selection:bg-black/10">
+            <div className="flex flex-col flex-1 min-h-0 bg-white selection:bg-black/10">
                 <div className="px-8 py-6 border-b-4 border-black flex items-center justify-between">
                     <div>
                         <h2 className="text-2xl font-black text-black uppercase tracking-tight">Generated Lua Script</h2>

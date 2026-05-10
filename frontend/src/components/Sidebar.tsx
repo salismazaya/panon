@@ -1,14 +1,13 @@
-import { If } from "../nodes/ControlNodes";
-import { Transfer, TransferToken } from "../nodes/ActionNodes";
 import { useFlow } from "../context/FlowContext";
-import { OnSolReceived } from "../nodes/OnSolReceived";
-import { Arithmetic } from "../nodes/ComputeNodes";
-import { GetSolBalance } from "../nodes/GetSolBalance";
-import { OnTokenReceived } from "../nodes/OnTokenReceived";
+import { nodeRegistry } from "../utils/nodeRegistry";
+import { SidebarDynamicNode } from "./DynamicNode";
 
 export default function Sidebar({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
     const { addNode } = useFlow();
 
+    // Group nodes by category
+    const categories = ['Trigger', 'Action', 'Logic', 'Compute'] as const;
+    
     return (
         <div className={`
             fixed lg:relative inset-y-0 left-0 z-40
@@ -36,48 +35,28 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean, onClose:
             </div>
 
             <div className="flex flex-col gap-6 overflow-y-auto pr-2 custom-scrollbar">
-                {/* <OnUSDCReceived
-                    data={{ label: "On USDC Received" }}
-                    onClick={() => addNode('OnUSDCReceived', { label: "On USDC Received" })}
-                /> */}
-                <If
-                    data={{ label: "If Condition" }}
-                    onClick={() => addNode('If', { label: "If Condition" })}
-                />
-                {/* <Loop 
-                    data={{ label: "Loop" }} 
-                    onClick={() => addNode('Loop', { label: "Loop" })}
-                /> */}
+                {categories.map((cat, catIdx) => {
+                    const nodes = Object.entries(nodeRegistry).filter(([_, def]) => def.category === cat);
+                    if (nodes.length === 0) return null;
 
-                <OnSolReceived
-                    data={{ label: "On Solana Received" }}
-                    onClick={() => addNode('OnSolReceived', { label: "On Solana Received" })}
-                />
-
-                <OnTokenReceived
-                    data={{ label: "On Token Received" }}
-                    onClick={() => addNode('OnTokenReceived', { label: "On Token Received" })}
-                />
-
-                <div className="mt-4 border-t-2 border-black pt-6">
-                    <label className="text-[12px] font-black text-black uppercase tracking-widest mb-4 block">Actions Library</label>
-                    <GetSolBalance
-                        data={{ label: "Get SOL Balance" }}
-                        onClick={() => addNode('GetSolBalance', { label: "Get SOL Balance" })}
-                    />
-                    <Transfer
-                        data={{ label: "Transfer SOL" }}
-                        onClick={() => addNode('Transfer', { label: "Transfer SOL" })}
-                    />
-                    <TransferToken
-                        data={{ label: "Transfer Token" }}
-                        onClick={() => addNode('TransferToken', { label: "Transfer Token" })}
-                    />
-                    <Arithmetic
-                        data={{ label: "Arithmetic" }}
-                        onClick={() => addNode('Compute', { label: "Arithmetic" })}
-                    />
-                </div>
+                    return (
+                        <div key={cat} className={catIdx > 0 ? "mt-4 border-t-2 border-black pt-6" : ""}>
+                            <label className="text-[12px] font-black text-black uppercase tracking-widest mb-4 block">
+                                {cat}s Library
+                            </label>
+                            <div className="flex flex-col gap-4">
+                                {nodes.map(([type, def]) => (
+                                    <SidebarDynamicNode
+                                        key={type}
+                                        type={type}
+                                        label={def.title}
+                                        onClick={() => addNode(type, { label: def.title })}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
 
             <div className="mt-auto pt-6 border-t-2 border-black">

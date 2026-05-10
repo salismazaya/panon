@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	lua "github.com/yuin/gopher-lua"
@@ -14,6 +17,7 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/gagliardetto/solana-go/rpc/ws"
+	"github.com/redis/go-redis/v9"
 	"github.com/salismazaya/panon/internal/database"
 	"github.com/salismazaya/panon/internal/helpers"
 	"github.com/salismazaya/panon/internal/middleware"
@@ -54,8 +58,10 @@ type Handlers struct {
 		ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *ws.AccountResult)) error
 		DisconnectPubKey(pubkey solana.PublicKey)
 	}
-	Auth         *middleware.AuthMiddleware
-	TokenService *service.TokenService
+	Auth             *middleware.AuthMiddleware
+	TokenService     *service.TokenService
+	RedisClient      *redis.Client
+	WorkspaceMutexes sync.Map // map[uint]*sync.Mutex
 }
 
 // New creates a new Handlers instance.
@@ -66,14 +72,17 @@ func New(defaultAddress string, getPrivateKey func() string, tokenService *servi
 	GetRPCClient(network models.Network) *rpc.Client
 	ListenPubKey(network models.Network, pubkey solana.PublicKey, callback func(context.Context, *ws.AccountResult)) error
 	DisconnectPubKey(pubkey solana.PublicKey)
-}) *Handlers {
+}, rdb *redis.Client) *Handlers {
 	return &Handlers{
 		DefaultAddress: defaultAddress,
 		GetPrivateKey:  getPrivateKey,
 		TokenService:   tokenService,
 		SolListener:    solListener,
+		RedisClient:    rdb,
 	}
 }
+
+// lua.State
 
 // ExecuteLuaTrigger executes the Lua trigger when SOL or Token is received.
 func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorInput) {
@@ -94,9 +103,23 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 		return
 	}
 
-	L := lua.NewState()
-	defer L.Close()
-	L.SetContext(ctx)
+	// Create a stable execution context with a 1-minute timeout to survive workspace re-registrations.
+	executionCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
+
+	// Fetch Lua state from pool
+	L := GlobalLuaPool.Get()
+	defer GlobalLuaPool.Put(L)
+
+	L.SetContext(executionCtx)
+
+	// Concurrency control: per-workspace mutex
+	muInterface, _ := h.WorkspaceMutexes.LoadOrStore(workspace.ID, &sync.Mutex{})
+	mu := muInterface.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
+	rpcClient := h.SolListener.GetRPCClient(input.Workspace.Network)
 
 	pk, err := solana.PrivateKeyFromBase58(workspace.Wallet.GetPrivateKey())
 	if err != nil {
@@ -104,13 +127,20 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 	}
 	address := pk.PublicKey().String()
 
-	rpcClient := h.SolListener.GetRPCClient(workspace.Network)
-	client := panon.New(rpcClient, workspace.Wallet.GetPrivateKey())
+	// Pre-fetch blockhash
+	latestBlockhash, err := rpcClient.GetLatestBlockhash(executionCtx, rpc.CommitmentFinalized)
+	if err == nil {
+		L.SetGlobal("recentBlockhash", lua.LString(latestBlockhash.Value.Blockhash.String()))
+	}
+
+	jupiterAPIKey := os.Getenv("JUPITER_API_KEY")
+	client := panon.New(context.Background(), rpcClient, workspace.Wallet.GetPrivateKey(), h.RedisClient, workspace.ID, jupiterAPIKey)
 	client.Register(L)
 
 	L.SetGlobal("rpcUrl", lua.LString(h.SolListener.GetRPCURL(workspace.Network)))
 	L.SetGlobal("privateKey", lua.LString(workspace.Wallet.GetPrivateKey()))
 	L.SetGlobal("my_address", lua.LString(address))
+	L.SetGlobal("on_tx_hash", lua.LString(input.Signature))
 
 	if err := L.DoString(string(code)); err != nil {
 		log.Printf("❌ Lua Error: %v", err)
@@ -118,19 +148,23 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 	}
 
 	var fn lua.LValue
-	var amount float64
 	var triggerName string
+	var args []lua.LValue
 
-	if input.TokenMint != "" {
+	if input.CronFnName != "" {
+		triggerName = input.CronFnName
+		fn = L.GetGlobal(triggerName)
+		// Cron functions don't have arguments for now
+	} else if input.TokenMint != "" {
 		// Token transfer
 		triggerName = fmt.Sprintf("on_token_%s_received", input.TokenMint)
 		fn = L.GetGlobal(triggerName)
-		amount = input.TokenAmountIn
+		args = append(args, lua.LNumber(input.TokenAmountIn), lua.LString(input.Signer))
 	} else {
 		// SOL transfer
 		triggerName = "on_sol_received"
 		fn = L.GetGlobal(triggerName)
-		amount = input.SolAmountIn
+		args = append(args, lua.LNumber(input.SolAmountIn), lua.LString(input.Signer))
 	}
 
 	if fn.Type() != lua.LTFunction {
@@ -141,7 +175,7 @@ func (h *Handlers) ExecuteLuaTrigger(ctx context.Context, input models.ExecutorI
 		Fn:      fn,
 		NRet:    0,
 		Protect: true,
-	}, lua.LNumber(amount), lua.LString(input.Signer))
+	}, args...)
 
 	if err != nil {
 		log.Printf("❌ Error executing Lua callback %s: %v", triggerName, err)

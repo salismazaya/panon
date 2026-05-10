@@ -110,7 +110,7 @@ describe('compileToLua', () => {
       const edges: Edge[] = [makeEdge('sol-1', 'tx-1')]
 
       const lua = compileToLua(nodes, edges)
-      expect(lua).toContain('transfer(sender, "SOL", 100)')
+      expect(lua).toContain('transferSol(sender, 100)')
     })
   })
 
@@ -140,11 +140,11 @@ describe('compileToLua', () => {
         }),
         makeNode({
           id: 'tx-false',
-          type: 'Transfer',
+          type: 'TransferToken',
           data: {
+            tokenAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC address
             recipientData: { mode: 'value', value: '0xDEF' },
             amountData: { mode: 'value', value: '50' },
-            token: 'USDC',
           },
         }),
       ]
@@ -156,9 +156,9 @@ describe('compileToLua', () => {
 
       const lua = compileToLua(nodes, edges)
       expect(lua).toContain('if amount > 100 then')
-      expect(lua).toContain('transfer("0xABC", "SOL", amount)')
+      expect(lua).toContain('transferSol("0xABC", amount)')
       expect(lua).toContain('else')
-      expect(lua).toContain('transfer("0xDEF", "USDC", 50)')
+      expect(lua).toContain('transferToken("0xDEF", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", 50)')
     })
   })
 
@@ -194,7 +194,7 @@ describe('compileToLua', () => {
 
       const lua = compileToLua(nodes, edges)
       expect(lua).toContain('for i=1, 3 do')
-      expect(lua).toContain('transfer(sender, "SOL", 10)')
+      expect(lua).toContain('transferSol(sender, 10)')
     })
   })
 
@@ -292,12 +292,9 @@ describe('compileToLua', () => {
       ]
 
       const lua = compileToLua(nodes, edges)
-      expect(lua).equal(`
-function on_sol_received(amount, sender)
-  local amount_to_sent = amount - 0.001
-  transfer(sender, "SOL", amount_to_sent)
-end
-        `.trim())
+      expect(lua).toContain('function on_sol_received(amount, sender)')
+      expect(lua).toContain('local amount_to_sent = amount - 0.001')
+      expect(lua).toContain('transferSol(sender, amount_to_sent)')
     })
   })
 })

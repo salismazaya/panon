@@ -14,8 +14,9 @@ export interface BaseNodeProps {
     icon: React.ReactNode;
     title: string;
     subtitle: string;
-    colorScheme?: 'indigo' | 'blue' | 'orange' | 'emerald' | 'rose' | 'purple';
+    colorScheme?: 'indigo' | 'blue' | 'orange' | 'emerald' | 'rose' | 'purple' | 'white';
     modalTitle?: string;
+    modalSize?: 'small' | 'large' | 'xl';
     modalBody?: (data: any, updateData: (newData: any) => void, errors: Record<string, string> | null) => React.ReactNode;
     onClick?: () => void;
     children?: React.ReactNode;
@@ -67,9 +68,16 @@ const colorMap = {
     },
     purple: {
         accent: 'text-black',
-        bg: 'bg-[#c084fc]', // Purple 400
+        bg: 'bg-[#a855f7]', // Purple 500
         border: 'border-black',
-        button: 'bg-[#c084fc] text-black hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_#000]',
+        button: 'bg-[#a855f7] text-black hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_#000]',
+        handle: '!border-black !bg-white'
+    },
+    white: {
+        accent: 'text-black',
+        bg: 'bg-white',
+        border: 'border-black',
+        button: 'bg-white text-black hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_#000]',
         handle: '!border-black !bg-white'
     }
 };
@@ -82,6 +90,7 @@ export function BaseNode({
     subtitle,
     colorScheme = 'indigo',
     modalTitle,
+    modalSize = 'small',
     modalBody,
     onClick,
     children,
@@ -94,8 +103,8 @@ export function BaseNode({
     const [draftData, setDraftData] = useState(data);
     const theme = colorMap[colorScheme];
 
-    const isValid = type ? isNodeValid({ id, data, type } as any) : true;
-    const draftErrors = type ? getNodeErrors({ id, data: draftData, type } as any) : null;
+    const isValid = type && !isSidebar ? isNodeValid({ id, data, type } as any) : true;
+    const draftErrors = isSidebar ? null : (type ? getNodeErrors({ id, data: draftData, type } as any) : null);
 
     // Ensure draftData stays in sync when modal opens
     const handleOpenModal = () => {
@@ -193,8 +202,9 @@ export function BaseNode({
                     onRequestClose={() => setIsModalOpen(false)}
                     contentLabel={modalTitle || "Setup Node"}
                     closeTimeoutMS={300}
+                    className={`ReactModal__Content modal-${modalSize}`}
                 >
-                    <div className="flex flex-col h-full bg-white selection:bg-black/10">
+                    <div className="flex flex-col flex-1 min-h-0 bg-white selection:bg-black/10">
                         {/* Header */}
                         <div className="px-8 py-6 border-b-4 border-black flex items-center justify-between">
                             <div>

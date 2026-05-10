@@ -23,7 +23,7 @@ export function compileToLua(nodes: Node[], edges: Edge[]) {
         return nodeDef.generate(targetNode, { getNext, indent, nodes });
     };
 
-    const triggerTypes = ['OnTokenReceived', 'OnSolReceived',];
+    const triggerTypes = ['OnTokenReceived', 'OnSolReceived', 'OnUSDCReceived', 'OnCron'];
     const triggers = nodes.filter(n => triggerTypes.includes(n.type || ''));
 
     if (triggers.length === 0) {

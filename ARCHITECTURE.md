@@ -30,22 +30,25 @@ panon/
         │   ├── KeyContext.tsx         # State: wallet address aktif
         │   └── FlowContext.tsx        # State: node builder, code generation
         ├── components/
+        │   ├── DynamicNode.tsx       # Universal node renderer (canvas/sidebar)
         │   ├── Header.tsx            # Header bar + workspace selector
-        │   ├── Sidebar.tsx           # Panel kiri: daftar block/node
-        │   ├── Playground.tsx        # Canvas drag-and-drop
+        │   ├── Sidebar.tsx           # Dynamic panel: categories-based loader
+        │   ├── Playground.tsx        # Canvas: auto-node-registration
         │   ├── WorkspaceSelector.tsx # Dropdown pilih/buat/rename workspace
         │   ├── CodeModal.tsx         # Modal preview kode Lua
         │   ├── KeyModal.tsx          # Modal pengaturan wallet
         │   └── Fields.tsx            # Input fields untuk node
+        ├── utils/
+        │   ├── nodeRegistry.tsx      # Central node definition (logic, UI, metadata)
+        │   ├── compiler.ts           # Lua code generator
+        │   └── api.ts                # API client
         └── nodes/
-            ├── BaseNode.tsx          # Base node, recursive children
-            ├── OnSolReceived.tsx     # Trigger: SOL masuk
-            ├── OnUSDCReceived.tsx    # Trigger: USDC masuk
-            ├── ActionNodes.tsx       # Action: Transfer SOL/Token
-            ├── ComputeNodes.tsx      # Compute: Get Balance, dll
-            ├── ControlNodes.tsx      # Control: If/Else
-            └── GetSolBalance.tsx     # Node: cek saldo SOL
+            └── BaseNode.tsx          # Base node styles & modal handling
 ```
+
+> [!TIP]
+> Untuk menambah node baru, baca panduan lengkap di [ADD_NODE.md](./ADD_NODE.md).
+
 
 ---
 

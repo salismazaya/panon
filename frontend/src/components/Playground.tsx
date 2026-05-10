@@ -1,26 +1,14 @@
 import { Background, ReactFlow } from "@xyflow/react";
-import { OnUSDCReceivedNode } from "../nodes/OnUSDCReceived";
-import { IfNode, LoopNode } from "../nodes/ControlNodes";
-import { TransferNode, TransferTokenNode } from "../nodes/ActionNodes";
-import '@xyflow/react/dist/style.css';
+import { DynamicNode } from "../components/DynamicNode";
+import { nodeRegistry } from "../utils/nodeRegistry";
 import { useFlow } from "../context/FlowContext";
-import { OnSolReceivedNode } from "../nodes/OnSolReceived";
-import { ArithmeticNode } from '../nodes/ComputeNodes';
 import { useEffect } from "react";
-import { GetSolBalanceNode } from "../nodes/GetSolBalance";
-import { OnTokenReceivedNode } from "../nodes/OnTokenReceived";
+import '@xyflow/react/dist/style.css';
 
-const nodeTypes = {
-    OnUSDCReceived: OnUSDCReceivedNode,
-    If: IfNode,
-    Loop: LoopNode,
-    Transfer: TransferNode,
-    Compute: ArithmeticNode,
-    OnSolReceived: OnSolReceivedNode,
-    GetSolBalance: GetSolBalanceNode,
-    OnTokenReceived: OnTokenReceivedNode,
-    TransferToken: TransferTokenNode
-};
+const nodeTypes = Object.keys(nodeRegistry).reduce((acc, type) => {
+    acc[type] = (props: any) => <DynamicNode {...props} type={type} />;
+    return acc;
+}, {} as any);
 
 export default function Playground() {
     const { nodes, edges, onNodesChange, onEdgesChange, onConnect, loadFlow } = useFlow();
@@ -36,7 +24,9 @@ export default function Playground() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            nodeTypes={nodeTypes} fitView>
+            nodeTypes={nodeTypes} 
+            fitView
+        >
             <Background />
         </ReactFlow>
     );
